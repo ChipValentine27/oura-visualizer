@@ -1,0 +1,25 @@
+using Microsoft.EntityFrameworkCore;
+using OuraViz.Api.Models;
+
+namespace OuraViz.Api.Data;
+
+public class OuraDbContext(DbContextOptions<OuraDbContext> options) : DbContext(options)
+{
+    public DbSet<DailyActivity> DailyActivities => Set<DailyActivity>();
+    public DbSet<OuraToken> OuraTokens => Set<OuraToken>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DailyActivity>(e =>
+        {
+            e.HasKey(x => x.Day);
+            e.Property(x => x.OuraId).HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<OuraToken>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+        });
+    }
+}
