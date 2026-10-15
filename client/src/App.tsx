@@ -361,16 +361,16 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
   const points = useMemo(
     () =>
       toOverlayPoints(data.steps.buckets, data.sleep.buckets, {
-        steps: data.steps.medianPerDay,
-        sleep: data.sleep.medianPerDay,
+        steps: data.steps.averagePerDay,
+        sleep: data.sleep.averagePerDay,
       }),
     [data],
   )
   const shown = OVERLAY_SERIES.filter((id) => visible[id])
   const noData = shown.every((id) => data[id].daysWithData === 0)
   const perDay = interval !== 'daily'
-  const medians = shown
-    .map((id) => `${METRICS[id].formatValue(data[id].medianPerDay)} ${id === 'steps' ? 'steps/day' : 'sleep/night'}`)
+  const means = shown
+    .map((id) => `${METRICS[id].formatValue(data[id].averagePerDay)} ${id === 'steps' ? 'steps/day' : 'sleep/night'}`)
     .join(', ')
   const pctOf = (p: OverlayPoint, id: MetricId) => (id === 'steps' ? p.stepsPct : p.sleepPct)
 
@@ -380,8 +380,8 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
         {shown.map((id) => (
           <Stat
             key={id}
-            label={id === 'steps' ? 'Steps, median per day' : 'Sleep, median per night'}
-            value={METRICS[id].formatValue(data[id].medianPerDay)}
+            label={id === 'steps' ? 'Steps, daily average' : 'Sleep, nightly average'}
+            value={METRICS[id].formatValue(data[id].averagePerDay)}
             swatch={METRICS[id].color}
           />
         ))}
@@ -395,10 +395,10 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
         <div className="card-header">
           <div>
             <h2>
-              {shown.map((id) => METRICS[id].label).join(' and ')} vs. median, by {UNIT[interval]}
+              {shown.map((id) => METRICS[id].label).join(' and ')} vs. average, by {UNIT[interval]}
             </h2>
             <p className="card-sub">
-              Above (+) or below (−) the median for the selected period ({medians})
+              Above (+) or below (−) the average (mean) for the selected period ({means})
               {perDay ? ', comparing per-day averages' : ''}
               {shown.length > 1 ? ', so both share one scale.' : '.'}
             </p>
@@ -447,7 +447,7 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
                   {shown.map((id) => (
                     <Fragment key={id}>
                       <th className="num">{id === 'steps' ? (perDay ? 'Steps / day' : 'Steps') : perDay ? 'Sleep / night' : 'Sleep'}</th>
-                      <th className="num">vs. median</th>
+                      <th className="num">vs. average</th>
                     </Fragment>
                   ))}
                 </tr>

@@ -19,9 +19,8 @@ export interface SeriesResponse {
   buckets: Bucket[]
   total: number
   daysWithData: number
+  /** Mean of the daily values in the range (days without data are skipped). */
   averagePerDay: number
-  /** Median of the daily values in the range (days without data are skipped). */
-  medianPerDay: number
 }
 
 export interface DataRange {

@@ -29,11 +29,11 @@ Daily/Weekly/Monthly/Yearly interval.
   A day's sleep is the sum of Oura's sleep periods for that day (main sleep
   plus naps); "rest" periods are excluded.
 - **Steps + Sleep**: grouped bars on one chart showing how far each period is
-  above (+) or below (−) that metric's **median for the selected date range**:
-  `(value − median) / median`. The median is taken over the daily values in the
-  range (days without data are skipped); for weekly and longer intervals each
-  bucket's per-day average is compared against it. Changing the date range
-  changes the median. Using a shared percentage scale instead of two y-axes
+  above (+) or below (−) that metric's **average (mean) for the selected date
+  range**: `(value − mean) / mean`. The mean is taken over the daily values in
+  the range (days without data are skipped); for weekly and longer intervals
+  each bucket's per-day average is compared against it. Changing the date range
+  changes the mean. Using a shared percentage scale instead of two y-axes
   keeps the comparison honest; the tooltip and table show the raw values.
   - Checkboxes above the chart add or remove each series (at least one stays on);
     the stats, heading and table follow the selection.
@@ -82,7 +82,7 @@ registered).
 
 | Method | Route | Purpose |
 |---|---|---|
-| GET  | `/api/metrics/{steps\|sleep}?start=&end=&interval=daily\|weekly\|monthly\|yearly` | Bucketed totals + per-day averages, plus the range's daily median (sleep in seconds) |
+| GET  | `/api/metrics/{steps\|sleep}?start=&end=&interval=daily\|weekly\|monthly\|yearly` | Bucketed totals + per-day averages, plus the range's daily mean (sleep in seconds) |
 | GET  | `/api/metrics/range` | First/last day stored, activity days and sleep nights |
 | GET  | `/api/oura/status` | Client configured? Connected? Token expiry |
 | GET  | `/api/oura/connect` | Starts OAuth (browser navigation, redirects to Oura) |

@@ -12,23 +12,23 @@ import {
 } from 'recharts'
 import type { Bucket, Interval, MetricId } from '../api'
 import { bucketLabel, parseDay, tickLabel } from '../dates'
-import { formatSignedPercent, METRICS, percentFromMedian } from '../metrics'
+import { formatSignedPercent, METRICS, percentFromMean } from '../metrics'
 
 export interface OverlayPoint {
   start: string
   end: string
   steps: Bucket
   sleep: Bucket
-  /** ± % of each bucket's per-day average versus the selected period's median. */
+  /** ± % of each bucket's per-day average versus the selected period's mean. */
   stepsPct: number | null
   sleepPct: number | null
 }
 
 export type VisibleSeries = Record<MetricId, boolean>
-export type Medians = Record<MetricId, number>
+export type Means = Record<MetricId, number>
 
 /** Pairs the two series bucket-by-bucket; both come from the same range and interval. */
-export function toOverlayPoints(steps: Bucket[], sleep: Bucket[], medians: Medians): OverlayPoint[] {
+export function toOverlayPoints(steps: Bucket[], sleep: Bucket[], means: Means): OverlayPoint[] {
   return steps.map((s, i) => {
     const z = sleep[i]
     return {
@@ -36,8 +36,8 @@ export function toOverlayPoints(steps: Bucket[], sleep: Bucket[], medians: Media
       end: s.end,
       steps: s,
       sleep: z,
-      stepsPct: percentFromMedian(s.averagePerDay, s.daysWithData, medians.steps),
-      sleepPct: z ? percentFromMedian(z.averagePerDay, z.daysWithData, medians.sleep) : null,
+      stepsPct: percentFromMean(s.averagePerDay, s.daysWithData, means.steps),
+      sleepPct: z ? percentFromMean(z.averagePerDay, z.daysWithData, means.sleep) : null,
     }
   })
 }
@@ -62,7 +62,7 @@ interface Props {
 
 /**
  * Steps and sleep as grouped bars on one shared scale: how far each period is above (+) or
- * below (−) that metric's median for the selected range. Indexing both to their own median
+ * below (−) that metric's mean for the selected range. Indexing both to their own mean
  * avoids a dual-axis chart and needs no goals.
  *
  * Hovering a bar emphasizes its series: that bar darkens, the other series fades across the
@@ -116,7 +116,7 @@ export function OverlayChart({ points, interval, visible }: Props) {
         <ReferenceLine
           y={0}
           stroke="var(--axis)"
-          label={{ value: 'Median', position: 'right', fill: 'var(--text-secondary)', fontSize: 12 }}
+          label={{ value: 'Average', position: 'right', fill: 'var(--text-secondary)', fontSize: 12 }}
         />
         {shown.map((id) => {
           const m = METRICS[id]
@@ -132,7 +132,7 @@ export function OverlayChart({ points, interval, visible }: Props) {
               // one under the mouse, and keep the other series faded.
               activeBar={dimmed ? { fill: m.color, fillOpacity: DIMMED_OPACITY } : { fill: m.colorActive, fillOpacity: 1 }}
               // Recharts mirrors the radius for negative bars, so this rounds the end away
-              // from the median line in both directions.
+              // from the average line in both directions.
               radius={[4, 4, 0, 0]}
               maxBarSize={24}
               isAnimationActive={false}
@@ -177,7 +177,7 @@ function OverlayTooltip({
           </div>
         )
       })}
-      <div className="tooltip-muted">vs. median for the selected period{perDay ? ', per-day averages' : ''}</div>
+      <div className="tooltip-muted">vs. average (mean) for the selected period{perDay ? ', per-day averages' : ''}</div>
     </div>
   )
 }
