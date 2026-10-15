@@ -612,3 +612,99 @@ th {
     grid-template-columns: 1fr;
   }
 }
+.btn-small {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
+.picker-toggle {
+  margin-left: auto;
+}
+
+.metric-picker {
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-0);
+}
+.picker-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.picker-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.picker-tabs button:hover {
+  color: var(--text-primary);
+}
+.picker-tabs button.selected {
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
+}
+.picker-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--text-primary);
+  color: var(--surface-1);
+  font-size: 0.72rem;
+  line-height: 18px;
+  text-align: center;
+}
+.picker-panel {
+  padding: 10px 12px 12px;
+}
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 4px 16px;
+}
+.picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+.picker-option:hover:not(:has(input:disabled)) {
+  background: var(--hover-band);
+}
+.picker-option:has(input:disabled) {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.picker-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.picker-option input {
+  margin: 0;
+  width: 15px;
+  height: 15px;
+}
+.picker-tag {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.picker-note {
+  margin: 10px 6px 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}

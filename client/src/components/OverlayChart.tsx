@@ -35,10 +35,10 @@ export type VisibleSeries = Record<MetricId, boolean>
 /** Per metric, the daily goal or the period mean that bars are measured against. */
 export type References = Partial<Record<MetricId, number>>
 
-function toPercent(b: Bucket, baseline: Baseline, reference: number) {
+function toPercent(id: MetricId, b: Bucket, baseline: Baseline, reference: number) {
   return baseline === 'goal'
     ? percentOfGoal(b.averagePerDay, b.daysWithData, reference)
-    : percentFromMean(b.averagePerDay, b.daysWithData, reference)
+    : percentFromMean(id, b.averagePerDay, b.daysWithData, reference)
 }
 
 /** Lines the metrics up period by period; they all come from the same range and interval. */
@@ -56,7 +56,7 @@ export function toOverlayPoints(
       const b = series[id]?.[i]
       if (!b) continue
       buckets[id] = b
-      pct[id] = toPercent(b, baseline, references[id] ?? 0)
+      pct[id] = toPercent(id, b, baseline, references[id] ?? 0)
     }
     return { start: anchor.start, end: anchor.end, buckets, pct }
   })
