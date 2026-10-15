@@ -3,7 +3,7 @@ import { api, type DataRange, type Interval, type MetricId, type OuraStatus, typ
 import { MetricChart, type Aggregate } from './components/MetricChart'
 import { OverlayChart, toOverlayPoints, type OverlayPoint, type VisibleSeries } from './components/OverlayChart'
 import { addDays, bucketLabel, formatNumber, today } from './dates'
-import { METRICS, type MetricConfig } from './metrics'
+import { formatSignedPercent, METRICS, type MetricConfig } from './metrics'
 
 type View = 'steps' | 'sleep' | 'overlay'
 
@@ -358,11 +358,20 @@ interface OverlayViewProps {
 const OVERLAY_SERIES: MetricId[] = ['steps', 'sleep']
 
 function OverlayView({ data, interval, visible, onToggleSeries, loading, showTable, onToggleTable }: OverlayViewProps) {
-  const points = useMemo(() => toOverlayPoints(data.steps.buckets, data.sleep.buckets), [data])
+  const points = useMemo(
+    () =>
+      toOverlayPoints(data.steps.buckets, data.sleep.buckets, {
+        steps: data.steps.averagePerDay,
+        sleep: data.sleep.averagePerDay,
+      }),
+    [data],
+  )
   const shown = OVERLAY_SERIES.filter((id) => visible[id])
   const noData = shown.every((id) => data[id].daysWithData === 0)
   const perDay = interval !== 'daily'
-  const goals = shown.map((id) => `${METRICS[id].goalLabel.replace(' goal', '')} ${METRICS[id].id}`).join(', ')
+  const means = shown
+    .map((id) => `${METRICS[id].formatValue(data[id].averagePerDay)} ${id === 'steps' ? 'steps/day' : 'sleep/night'}`)
+    .join(', ')
   const pctOf = (p: OverlayPoint, id: MetricId) => (id === 'steps' ? p.stepsPct : p.sleepPct)
 
   return (
@@ -386,10 +395,11 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
         <div className="card-header">
           <div>
             <h2>
-              {shown.map((id) => METRICS[id].label).join(' and ')} vs. daily goal, by {UNIT[interval]}
+              {shown.map((id) => METRICS[id].label).join(' and ')} vs. average, by {UNIT[interval]}
             </h2>
             <p className="card-sub">
-              As a percentage of the daily goal ({goals}){perDay ? ', using per-day averages' : ''}
+              Above (+) or below (−) the average (mean) for the selected period ({means})
+              {perDay ? ', comparing per-day averages' : ''}
               {shown.length > 1 ? ', so both share one scale.' : '.'}
             </p>
           </div>
@@ -437,7 +447,7 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
                   {shown.map((id) => (
                     <Fragment key={id}>
                       <th className="num">{id === 'steps' ? (perDay ? 'Steps / day' : 'Steps') : perDay ? 'Sleep / night' : 'Sleep'}</th>
-                      <th className="num">% of goal</th>
+                      <th className="num">vs. average</th>
                     </Fragment>
                   ))}
                 </tr>
@@ -451,7 +461,7 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
                       return (
                         <Fragment key={id}>
                           <td className="num">{pct === null ? '—' : METRICS[id].formatValue(p[id].averagePerDay)}</td>
-                          <td className="num">{pct === null ? '—' : `${pct}%`}</td>
+                          <td className="num">{pct === null ? '—' : formatSignedPercent(pct)}</td>
                         </Fragment>
                       )
                     })}
