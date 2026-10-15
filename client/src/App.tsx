@@ -1,9 +1,16 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { api, type DataRange, type Interval, type MetricId, type OuraStatus, type SeriesResponse } from './api'
 import { MetricChart, type Aggregate } from './components/MetricChart'
-import { OverlayChart, toOverlayPoints, type OverlayPoint, type VisibleSeries } from './components/OverlayChart'
+import {
+  formatPercent,
+  OverlayChart,
+  toOverlayPoints,
+  type Baseline,
+  type OverlayPoint,
+  type VisibleSeries,
+} from './components/OverlayChart'
 import { addDays, bucketLabel, formatNumber, today } from './dates'
-import { formatSignedPercent, METRICS, type MetricConfig } from './metrics'
+import { METRICS, type MetricConfig } from './metrics'
 
 type View = 'steps' | 'sleep' | 'overlay'
 
@@ -42,6 +49,7 @@ export default function App() {
   const [view, setView] = useState<View>('steps')
   const [aggregate, setAggregate] = useState<Aggregate>('total')
   const [visibleSeries, setVisibleSeries] = useState<VisibleSeries>({ steps: true, sleep: true })
+  const [baseline, setBaseline] = useState<Baseline>('average')
   const [showTable, setShowTable] = useState(false)
   const [data, setData] = useState<Series | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -238,6 +246,8 @@ export default function App() {
             interval={data.steps.interval}
             visible={visibleSeries}
             onToggleSeries={(id) => setVisibleSeries((v) => ({ ...v, [id]: !v[id] }))}
+            baseline={baseline}
+            onBaseline={setBaseline}
             loading={loading}
             showTable={showTable}
             onToggleTable={() => setShowTable((s) => !s)}
@@ -350,6 +360,8 @@ interface OverlayViewProps {
   interval: Interval
   visible: VisibleSeries
   onToggleSeries: (id: MetricId) => void
+  baseline: Baseline
+  onBaseline: (b: Baseline) => void
   loading: boolean
   showTable: boolean
   onToggleTable: () => void
@@ -357,14 +369,29 @@ interface OverlayViewProps {
 
 const OVERLAY_SERIES: MetricId[] = ['steps', 'sleep']
 
-function OverlayView({ data, interval, visible, onToggleSeries, loading, showTable, onToggleTable }: OverlayViewProps) {
+const BASELINES: { value: Baseline; label: string }[] = [
+  { value: 'goal', label: 'Daily goal' },
+  { value: 'average', label: 'Average' },
+]
+
+function OverlayView({
+  data,
+  interval,
+  visible,
+  onToggleSeries,
+  baseline,
+  onBaseline,
+  loading,
+  showTable,
+  onToggleTable,
+}: OverlayViewProps) {
   const points = useMemo(
     () =>
-      toOverlayPoints(data.steps.buckets, data.sleep.buckets, {
+      toOverlayPoints(data.steps.buckets, data.sleep.buckets, baseline, {
         steps: data.steps.averagePerDay,
         sleep: data.sleep.averagePerDay,
       }),
-    [data],
+    [data, baseline],
   )
   const shown = OVERLAY_SERIES.filter((id) => visible[id])
   const noData = shown.every((id) => data[id].daysWithData === 0)
@@ -372,6 +399,8 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
   const means = shown
     .map((id) => `${METRICS[id].formatValue(data[id].averagePerDay)} ${id === 'steps' ? 'steps/day' : 'sleep/night'}`)
     .join(', ')
+  const goals = shown.map((id) => `${METRICS[id].goalLabel.replace(' goal', '')} ${id}`).join(', ')
+  const vsLabel = baseline === 'goal' ? 'daily goal' : 'average'
   const pctOf = (p: OverlayPoint, id: MetricId) => (id === 'steps' ? p.stepsPct : p.sleepPct)
 
   return (
@@ -395,15 +424,30 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
         <div className="card-header">
           <div>
             <h2>
-              {shown.map((id) => METRICS[id].label).join(' and ')} vs. average, by {UNIT[interval]}
+              {shown.map((id) => METRICS[id].label).join(' and ')} vs. {vsLabel}, by {UNIT[interval]}
             </h2>
             <p className="card-sub">
-              Above (+) or below (−) the average (mean) for the selected period ({means})
+              {baseline === 'goal'
+                ? `As a percentage of the daily goal (${goals})`
+                : `Above (+) or below (−) the average (mean) for the selected period (${means})`}
               {perDay ? ', comparing per-day averages' : ''}
               {shown.length > 1 ? ', so both share one scale.' : '.'}
             </p>
           </div>
           <div className="card-tools">
+            <div className="segmented small" role="radiogroup" aria-label="Compare to">
+              {BASELINES.map((b) => (
+                <button
+                  key={b.value}
+                  role="radio"
+                  aria-checked={baseline === b.value}
+                  className={baseline === b.value ? 'selected' : ''}
+                  onClick={() => onBaseline(b.value)}
+                >
+                  {b.label}
+                </button>
+              ))}
+            </div>
             <button className="link" onClick={onToggleTable}>
               {showTable ? 'Hide table' : 'Show table'}
             </button>
@@ -435,7 +479,7 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
         {noData ? (
           <div className="empty">No data in this range.</div>
         ) : (
-          <OverlayChart points={points} interval={interval} visible={visible} />
+          <OverlayChart points={points} interval={interval} visible={visible} baseline={baseline} />
         )}
 
         {showTable && (
@@ -447,7 +491,7 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
                   {shown.map((id) => (
                     <Fragment key={id}>
                       <th className="num">{id === 'steps' ? (perDay ? 'Steps / day' : 'Steps') : perDay ? 'Sleep / night' : 'Sleep'}</th>
-                      <th className="num">vs. average</th>
+                      <th className="num">{baseline === 'goal' ? '% of goal' : 'vs. average'}</th>
                     </Fragment>
                   ))}
                 </tr>
@@ -461,7 +505,7 @@ function OverlayView({ data, interval, visible, onToggleSeries, loading, showTab
                       return (
                         <Fragment key={id}>
                           <td className="num">{pct === null ? '—' : METRICS[id].formatValue(p[id].averagePerDay)}</td>
-                          <td className="num">{pct === null ? '—' : formatSignedPercent(pct)}</td>
+                          <td className="num">{pct === null ? '—' : formatPercent(pct, baseline)}</td>
                         </Fragment>
                       )
                     })}
