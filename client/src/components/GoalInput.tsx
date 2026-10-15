@@ -3,12 +3,12 @@ import type { MetricConfig } from '../metrics'
 
 interface Props {
   metric: MetricConfig
-  /** The goal in effect: the user's own, or the period average when they haven't set one. */
+  /** The goal in effect: the user's own, or the metric's default (period average or fixed). */
   goal: number
-  /** True when the user typed this goal; false while it follows the average. */
+  /** True when the user typed this goal; false while it uses the metric's default. */
   isCustom: boolean
   disabled?: boolean
-  /** A new goal, or null to go back to following the average. */
+  /** A new goal, or null to go back to the metric's default. */
   onChange: (value: number | null) => void
 }
 
@@ -18,6 +18,8 @@ interface Props {
  */
 export function GoalInput({ metric, goal, isCustom, disabled, onChange }: Props) {
   const formatted = goal > 0 ? metric.formatGoal(goal) : ''
+  const followsAverage = metric.defaultGoal === 'average'
+  const defaultText = followsAverage ? '' : metric.formatGoal(metric.defaultGoal as number)
   // While editing (or holding unreadable text) the box shows the draft; otherwise the live goal,
   // so it keeps following the average as the date range changes.
   const [draft, setDraft] = useState<string | null>(null)
@@ -89,14 +91,16 @@ export function GoalInput({ metric, goal, isCustom, disabled, onChange }: Props)
             setInvalid(false)
             onChange(null)
           }}
-          title="Use the average for the selected period"
+          title={followsAverage ? 'Use the average for the selected period' : `Go back to ${defaultText}`}
         >
-          Use average
+          {followsAverage ? 'Use average' : `Use ${defaultText}`}
         </button>
       ) : (
-        <span className="goal-source" title="Following the average for the selected period">
-          avg
-        </span>
+        followsAverage && (
+          <span className="goal-source" title="Following the average for the selected period">
+            avg
+          </span>
+        )
       )}
     </span>
   )

@@ -46,6 +46,25 @@ namespace OuraViz.Api.Data.Migrations
                     b.ToTable("DailyActivities");
                 });
 
+            modelBuilder.Entity("OuraViz.Api.Models.DailyScore", b =>
+                {
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ReadinessScore")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("SleepScore")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Day");
+
+                    b.ToTable("DailyScores");
+                });
+
             modelBuilder.Entity("OuraViz.Api.Models.DailySleep", b =>
                 {
                     b.Property<DateOnly>("Day")

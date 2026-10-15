@@ -5,17 +5,16 @@ interface Props {
   /** Series name, for labels ("Steps color"). */
   seriesLabel: string
   value: ColorId
-  /** The other series' color, which can't be picked here. */
-  otherColor: ColorId
-  otherLabel: string
+  /** Colors already used by other metrics (color → that metric's label); these can't be picked. */
+  takenBy: Partial<Record<ColorId, string>>
   onChange: (color: ColorId) => void
 }
 
 /**
- * A swatch button that opens a grid of the selectable colors. The color already used by the
- * other series can't be picked, so the two series never share a color.
+ * A swatch button that opens a grid of the selectable colors. Colors already used by other
+ * metrics can't be picked, so no two metrics share a color.
  */
-export function ColorPicker({ seriesLabel, value, otherColor, otherLabel, onChange }: Props) {
+export function ColorPicker({ seriesLabel, value, takenBy, onChange }: Props) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -62,17 +61,17 @@ export function ColorPicker({ seriesLabel, value, otherColor, otherLabel, onChan
           <div className="color-grid">
             {COLORS.map((c) => {
               const selected = c.id === value
-              const taken = c.id === otherColor
+              const usedBy = selected ? undefined : takenBy[c.id]
               return (
                 <button
                   key={c.id}
                   type="button"
                   className={`color-option ${selected ? 'is-selected' : ''}`}
                   style={{ background: seriesColor(c.id).fill }}
-                  disabled={taken}
+                  disabled={usedBy !== undefined}
                   aria-pressed={selected}
-                  aria-label={taken ? `${c.label} (used by ${otherLabel})` : c.label}
-                  title={taken ? `${c.label}: used by ${otherLabel}` : c.label}
+                  aria-label={usedBy ? `${c.label} (used by ${usedBy})` : c.label}
+                  title={usedBy ? `${c.label}: used by ${usedBy}` : c.label}
                   onClick={() => {
                     onChange(c.id)
                     setOpen(false)

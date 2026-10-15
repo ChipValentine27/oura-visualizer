@@ -4,7 +4,7 @@ using OuraViz.Api.Models;
 
 namespace OuraViz.Api.Services;
 
-public record SyncResult(int ActivityDays, int SleepDays);
+public record SyncResult(int ActivityDays, int SleepDays, int ScoreDays);
 
 public class OuraSyncService(OuraDbContext db, OuraClient oura)
 {
@@ -47,15 +47,25 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
             })
             .ToList();
 
+        // Sleep and readiness scores come from two collections; merge them into one row per day.
+        var sleepScores = await oura.GetDailySleepAsync(start, end, ct);
+        var readinessScores = await oura.GetDailyReadinessAsync(start, end, ct);
+        var scores = new Dictionary<DateOnly, DailyScore>();
+        DailyScore ScoreRow(DateOnly day) =>
+            scores.TryGetValue(day, out var row) ? row : scores[day] = new DailyScore { Day = day, UpdatedAt = now };
+        foreach (var d in sleepScores) ScoreRow(d.Day).SleepScore = d.Score;
+        foreach (var d in readinessScores) ScoreRow(d.Day).ReadinessScore = d.Score;
+
         await UpsertAsync(db.DailyActivities, activity, a => a.Day, CopyActivity, ct);
         await UpsertAsync(db.DailySleep, sleep, s => s.Day, CopySleep, ct);
+        await UpsertAsync(db.DailyScores, scores.Values.ToList(), s => s.Day, CopyScore, ct);
         await db.SaveChangesAsync(ct);
 
-        return new SyncResult(activity.Count, sleep.Count);
+        return new SyncResult(activity.Count, sleep.Count, scores.Count);
     }
 
     /// <summary>
-    /// Generates plausible steps and sleep (weekday/weekend rhythm, seasonal drift, noise,
+    /// Generates plausible steps, sleep and scores (weekday/weekend rhythm, seasonal drift, noise,
     /// a mild link between active days and longer sleep) so the UI can be explored
     /// before Oura is connected.
     /// </summary>
@@ -63,9 +73,13 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
     {
         var stepsRng = new Random(42);
         var sleepRng = new Random(7);
+        var scoreRng = new Random(11); // separate, so adding scores didn't change the demo steps/sleep
         var now = DateTimeOffset.UtcNow;
         var activity = new List<DailyActivity>();
         var sleep = new List<DailySleep>();
+        var scores = new List<DailyScore>();
+        int Score(double value) => (int)Math.Round(Math.Clamp(value, 30, 99));
+        double Jitter(double spread) => (scoreRng.NextDouble() - 0.5) * 2 * spread;
 
         for (var day = start; day <= end; day = day.AddDays(1))
         {
@@ -83,6 +97,7 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
                 Steps = steps,
                 ActiveCalories = (int)(steps * 0.04),
                 TotalCalories = 2100 + (int)(steps * 0.04),
+                Score = Score(55 + (steps - 4000) / 250.0 + Jitter(6)),
                 UpdatedAt = now,
             });
 
@@ -110,13 +125,24 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
                 PeriodCount = nap > 0 ? 2 : 1,
                 UpdatedAt = now,
             });
+
+            // Longer nights score higher; readiness follows the night's score loosely.
+            var sleepScore = Score(45 + (total / 3600.0 - 4.5) * 11 + Jitter(5));
+            scores.Add(new DailyScore
+            {
+                Day = day,
+                SleepScore = sleepScore,
+                ReadinessScore = Score(70 + (sleepScore - 75) * 0.4 + Jitter(8)),
+                UpdatedAt = now,
+            });
         }
 
         await UpsertAsync(db.DailyActivities, activity, a => a.Day, CopyActivity, ct);
         await UpsertAsync(db.DailySleep, sleep, s => s.Day, CopySleep, ct);
+        await UpsertAsync(db.DailyScores, scores, s => s.Day, CopyScore, ct);
         await db.SaveChangesAsync(ct);
 
-        return new SyncResult(activity.Count, sleep.Count);
+        return new SyncResult(activity.Count, sleep.Count, scores.Count);
     }
 
     /// <summary>Inserts new days and overwrites existing ones in place. Caller saves changes.</summary>
@@ -146,6 +172,13 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
         to.TotalCalories = from.TotalCalories;
         to.Score = from.Score;
         to.OuraId = from.OuraId;
+        to.UpdatedAt = from.UpdatedAt;
+    }
+
+    private static void CopyScore(DailyScore from, DailyScore to)
+    {
+        to.SleepScore = from.SleepScore;
+        to.ReadinessScore = from.ReadinessScore;
         to.UpdatedAt = from.UpdatedAt;
     }
 

@@ -1,10 +1,10 @@
 export type Interval = 'daily' | 'weekly' | 'monthly' | 'yearly'
-export type MetricId = 'steps' | 'sleep'
+export type MetricId = 'steps' | 'sleep' | 'sleepScore' | 'readinessScore' | 'activityScore'
 
 export interface Bucket {
   start: string
   end: string
-  /** Steps are counts; sleep is seconds. */
+  /** Steps are counts; sleep is seconds; scores are summed 0–100 values (use averagePerDay). */
   total: number
   daysWithData: number
   averagePerDay: number
@@ -12,7 +12,7 @@ export interface Bucket {
 
 export interface SeriesResponse {
   metric: MetricId
-  unit: 'steps' | 'seconds'
+  unit: 'steps' | 'seconds' | 'score'
   start: string
   end: string
   interval: Interval
@@ -33,6 +33,7 @@ export interface DataRange {
 export interface SyncResult {
   activityDays: number
   sleepDays: number
+  scoreDays: number
 }
 
 export interface OuraStatus {

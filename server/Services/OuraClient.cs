@@ -13,6 +13,14 @@ public class OuraClient(HttpClient http, OuraTokenService tokens)
     public Task<List<OuraDailyActivity>> GetDailyActivityAsync(DateOnly start, DateOnly end, CancellationToken ct) =>
         GetCollectionAsync<OuraDailyActivity>("daily_activity", start, end, ct);
 
+    /// <summary>One document per day carrying the 0–100 sleep score.</summary>
+    public Task<List<OuraDailyScoreDoc>> GetDailySleepAsync(DateOnly start, DateOnly end, CancellationToken ct) =>
+        GetCollectionAsync<OuraDailyScoreDoc>("daily_sleep", start, end, ct);
+
+    /// <summary>One document per day carrying the 0–100 readiness score.</summary>
+    public Task<List<OuraDailyScoreDoc>> GetDailyReadinessAsync(DateOnly start, DateOnly end, CancellationToken ct) =>
+        GetCollectionAsync<OuraDailyScoreDoc>("daily_readiness", start, end, ct);
+
     /// <summary>Individual sleep periods (a night's sleep, naps, rest); several may share a day.</summary>
     public Task<List<OuraSleepPeriod>> GetSleepPeriodsAsync(DateOnly start, DateOnly end, CancellationToken ct) =>
         GetCollectionAsync<OuraSleepPeriod>("sleep", start, end, ct);
@@ -78,6 +86,12 @@ public record OuraDailyActivity(
     [property: JsonPropertyName("steps")] int Steps,
     [property: JsonPropertyName("active_calories")] int ActiveCalories,
     [property: JsonPropertyName("total_calories")] int TotalCalories,
+    [property: JsonPropertyName("score")] int? Score);
+
+/// <summary>The shared shape of daily_sleep and daily_readiness: a day and its 0–100 score.</summary>
+public record OuraDailyScoreDoc(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("day")] DateOnly Day,
     [property: JsonPropertyName("score")] int? Score);
 
 /// <summary>One sleep period. Durations are seconds and may be null for incomplete periods.</summary>
