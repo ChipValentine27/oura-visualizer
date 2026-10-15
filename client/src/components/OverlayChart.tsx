@@ -11,6 +11,7 @@ import {
   type TooltipContentProps,
 } from 'recharts'
 import type { Bucket, Interval, MetricId } from '../api'
+import type { SeriesColor } from '../colors'
 import { bucketLabel, parseDay, tickLabel } from '../dates'
 import { formatSignedPercent, METRICS, percentFromMean, percentOfGoal } from '../metrics'
 
@@ -32,16 +33,22 @@ export interface OverlayPoint {
 }
 
 export type VisibleSeries = Record<MetricId, boolean>
-export type Means = Record<MetricId, number>
+/** Per metric, the daily goal or the period mean that bars are measured against. */
+export type References = Record<MetricId, number>
 
-function toPercent(b: Bucket, id: MetricId, baseline: Baseline, means: Means) {
+function toPercent(b: Bucket, baseline: Baseline, reference: number) {
   return baseline === 'goal'
-    ? percentOfGoal(b.averagePerDay, b.daysWithData, METRICS[id].goal)
-    : percentFromMean(b.averagePerDay, b.daysWithData, means[id])
+    ? percentOfGoal(b.averagePerDay, b.daysWithData, reference)
+    : percentFromMean(b.averagePerDay, b.daysWithData, reference)
 }
 
 /** Pairs the two series bucket-by-bucket; both come from the same range and interval. */
-export function toOverlayPoints(steps: Bucket[], sleep: Bucket[], baseline: Baseline, means: Means): OverlayPoint[] {
+export function toOverlayPoints(
+  steps: Bucket[],
+  sleep: Bucket[],
+  baseline: Baseline,
+  references: References,
+): OverlayPoint[] {
   return steps.map((s, i) => {
     const z = sleep[i]
     return {
@@ -49,8 +56,8 @@ export function toOverlayPoints(steps: Bucket[], sleep: Bucket[], baseline: Base
       end: s.end,
       steps: s,
       sleep: z,
-      stepsPct: toPercent(s, 'steps', baseline, means),
-      sleepPct: z ? toPercent(z, 'sleep', baseline, means) : null,
+      stepsPct: toPercent(s, baseline, references.steps),
+      sleepPct: z ? toPercent(z, baseline, references.sleep) : null,
     }
   })
 }
@@ -82,6 +89,7 @@ interface Props {
   interval: Interval
   visible: VisibleSeries
   baseline: Baseline
+  colors: Record<MetricId, SeriesColor>
 }
 
 /**
@@ -92,7 +100,7 @@ interface Props {
  * Hovering a bar emphasizes its series: that bar darkens, the other series fades across the
  * chart, and the tooltip highlights the matching row.
  */
-export function OverlayChart({ points, interval, visible, baseline }: Props) {
+export function OverlayChart({ points, interval, visible, baseline, colors }: Props) {
   const [hovered, setHovered] = useState<MetricId | null>(null)
   const shown = SERIES.filter((id) => visible[id])
 
@@ -136,7 +144,14 @@ export function OverlayChart({ points, interval, visible, baseline }: Props) {
         <Tooltip
           cursor={{ fill: 'var(--hover-band)' }}
           content={(props: TooltipContentProps) => (
-            <OverlayTooltip {...props} interval={interval} shown={shown} hovered={hovered} baseline={baseline} />
+            <OverlayTooltip
+              {...props}
+              interval={interval}
+              shown={shown}
+              hovered={hovered}
+              baseline={baseline}
+              colors={colors}
+            />
           )}
           isAnimationActive={false}
         />
@@ -162,11 +177,15 @@ export function OverlayChart({ points, interval, visible, baseline }: Props) {
               key={id}
               dataKey={PCT_KEY[id]}
               name={m.label}
-              fill={m.color}
+              fill={colors[id].fill}
               fillOpacity={dimmed ? DIMMED_OPACITY : 1}
               // The shared tooltip activates every bar in the hovered period; only darken the
               // one under the mouse, and keep the other series faded.
-              activeBar={dimmed ? { fill: m.color, fillOpacity: DIMMED_OPACITY } : { fill: m.colorActive, fillOpacity: 1 }}
+              activeBar={
+                dimmed
+                  ? { fill: colors[id].fill, fillOpacity: DIMMED_OPACITY }
+                  : { fill: colors[id].active, fillOpacity: 1 }
+              }
               // Recharts mirrors the radius for negative bars, so this rounds the end away
               // from the baseline in both directions.
               radius={[4, 4, 0, 0]}
@@ -189,7 +208,14 @@ function OverlayTooltip({
   shown,
   hovered,
   baseline,
-}: TooltipContentProps & { interval: Interval; shown: MetricId[]; hovered: MetricId | null; baseline: Baseline }) {
+  colors,
+}: TooltipContentProps & {
+  interval: Interval
+  shown: MetricId[]
+  hovered: MetricId | null
+  baseline: Baseline
+  colors: Record<MetricId, SeriesColor>
+}) {
   if (!active || !payload?.length) return null
   const p = payload[0].payload as OverlayPoint
   const perDay = interval !== 'daily'
@@ -207,7 +233,7 @@ function OverlayTooltip({
         const state = hovered === null ? '' : hovered === id ? 'is-hovered' : 'is-dimmed'
         return (
           <div key={id} className={`tooltip-row tooltip-row-wide ${state}`}>
-            <span className="swatch" style={{ background: METRICS[id].color }} aria-hidden />
+            <span className="swatch" style={{ background: colors[id].fill }} aria-hidden />
             <span>{r.label}</span>
             <strong>{r.pct === null ? '—' : METRICS[id].formatValue(r.bucket.averagePerDay)}</strong>
             <span className="tooltip-pct">{r.pct === null ? '' : formatPercent(r.pct, baseline)}</span>

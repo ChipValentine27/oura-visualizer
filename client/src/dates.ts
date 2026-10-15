@@ -56,9 +56,6 @@ export function bucketLabel(start: string, end: string, interval: Interval) {
 
 export const formatNumber = (n: number) => n.toLocaleString()
 
-export const formatCompact = (n: number) =>
-  new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(n)
-
 /** Seconds as "7h 32m"; long totals drop the minutes ("1,240h"). */
 export function formatDuration(seconds: number) {
   const totalMinutes = Math.round(seconds / 60)
@@ -68,6 +65,3 @@ export function formatDuration(seconds: number) {
   if (h === 0) return `${m}m`
   return m === 0 ? `${h}h` : `${h}h ${m}m`
 }
-
-/** Axis tick for a value already in hours. */
-export const formatHours = (hours: number) => `${hours.toLocaleString(undefined, { maximumFractionDigits: 1 })}h`
