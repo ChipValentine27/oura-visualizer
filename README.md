@@ -28,13 +28,20 @@ Daily/Weekly/Monthly/Yearly interval.
 - **Sleep**: total sleep per period, or the nightly average (8h goal line).
   A day's sleep is the sum of Oura's sleep periods for that day (main sleep
   plus naps); "rest" periods are excluded.
-- **Steps + Sleep**: grouped bars on one chart showing how far each period is
-  above (+) or below (−) that metric's **average (mean) for the selected date
-  range**: `(value − mean) / mean`. The mean is taken over the daily values in
-  the range (days without data are skipped); for weekly and longer intervals
-  each bucket's per-day average is compared against it. Changing the date range
-  changes the mean. Using a shared percentage scale instead of two y-axes
-  keeps the comparison honest; the tooltip and table show the raw values.
+- **Steps + Sleep**: grouped bars on one chart, on a shared percentage scale.
+  A **Compare to** toggle picks the baseline:
+  - **Daily goal**: each value as a percentage of its daily goal (10K steps,
+    8h sleep), on a 0%–100% scale with a Goal line at 100%. The scale extends
+    in 25% steps only when a bar goes past the goal. Goals live in
+    `client/src/metrics.ts`.
+  - **Average** (default): how far each period is above (+) or below (−) that
+    metric's **mean for the selected date range**: `(value − mean) / mean`. The
+    mean is taken over the daily values in the range (days without data are
+    skipped), so changing the date range changes it.
+
+  For weekly and longer intervals each bucket's per-day average is compared.
+  Using a shared percentage scale instead of two y-axes keeps the comparison
+  honest; the tooltip and table show the raw values.
   - Checkboxes above the chart add or remove each series (at least one stays on);
     the stats, heading and table follow the selection.
   - Hovering a bar darkens it, fades the other series, and highlights its row

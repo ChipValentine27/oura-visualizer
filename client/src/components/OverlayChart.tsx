@@ -12,14 +12,21 @@ import {
 } from 'recharts'
 import type { Bucket, Interval, MetricId } from '../api'
 import { bucketLabel, parseDay, tickLabel } from '../dates'
-import { formatSignedPercent, METRICS, percentFromMean } from '../metrics'
+import { formatSignedPercent, METRICS, percentFromMean, percentOfGoal } from '../metrics'
+
+/**
+ * What each bar is measured against:
+ * - goal: % of the metric's daily goal (0% up, goal at 100%)
+ * - average: ± % from the metric's mean for the selected range (diverging around 0)
+ */
+export type Baseline = 'goal' | 'average'
 
 export interface OverlayPoint {
   start: string
   end: string
   steps: Bucket
   sleep: Bucket
-  /** ± % of each bucket's per-day average versus the selected period's mean. */
+  /** Each bucket's per-day average as a percentage, per the chosen {@link Baseline}. */
   stepsPct: number | null
   sleepPct: number | null
 }
@@ -27,8 +34,14 @@ export interface OverlayPoint {
 export type VisibleSeries = Record<MetricId, boolean>
 export type Means = Record<MetricId, number>
 
+function toPercent(b: Bucket, id: MetricId, baseline: Baseline, means: Means) {
+  return baseline === 'goal'
+    ? percentOfGoal(b.averagePerDay, b.daysWithData, METRICS[id].goal)
+    : percentFromMean(b.averagePerDay, b.daysWithData, means[id])
+}
+
 /** Pairs the two series bucket-by-bucket; both come from the same range and interval. */
-export function toOverlayPoints(steps: Bucket[], sleep: Bucket[], means: Means): OverlayPoint[] {
+export function toOverlayPoints(steps: Bucket[], sleep: Bucket[], baseline: Baseline, means: Means): OverlayPoint[] {
   return steps.map((s, i) => {
     const z = sleep[i]
     return {
@@ -36,11 +49,15 @@ export function toOverlayPoints(steps: Bucket[], sleep: Bucket[], means: Means):
       end: s.end,
       steps: s,
       sleep: z,
-      stepsPct: percentFromMean(s.averagePerDay, s.daysWithData, means.steps),
-      sleepPct: z ? percentFromMean(z.averagePerDay, z.daysWithData, means.sleep) : null,
+      stepsPct: toPercent(s, 'steps', baseline, means),
+      sleepPct: z ? toPercent(z, 'sleep', baseline, means) : null,
     }
   })
 }
+
+/** "87%" against a goal, "+12%" / "−8%" against the average. */
+export const formatPercent = (pct: number, baseline: Baseline) =>
+  baseline === 'goal' ? `${pct}%` : formatSignedPercent(pct)
 
 const SERIES: MetricId[] = ['steps', 'sleep']
 const PCT_KEY: Record<MetricId, 'stepsPct' | 'sleepPct'> = { steps: 'stepsPct', sleep: 'sleepPct' }
@@ -51,24 +68,31 @@ const NICE_STEPS = [5, 10, 20, 25, 50, 100, 200]
 function symmetricTicks(maxAbs: number) {
   const step = NICE_STEPS.find((s) => maxAbs / s <= 4) ?? NICE_STEPS.at(-1)!
   const top = Math.max(step, Math.ceil(maxAbs / step) * step)
-  return { top, ticks: Array.from({ length: (2 * top) / step + 1 }, (_, i) => -top + i * step) }
+  return { domain: [-top, top], ticks: Array.from({ length: (2 * top) / step + 1 }, (_, i) => -top + i * step) }
+}
+
+/** 0% to 100% in steps of 25%, extended in 25% steps only when a bar goes past the goal. */
+function goalTicks(max: number) {
+  const top = Math.max(100, Math.ceil(max / 25) * 25)
+  return { domain: [0, top], ticks: Array.from({ length: top / 25 + 1 }, (_, i) => i * 25) }
 }
 
 interface Props {
   points: OverlayPoint[]
   interval: Interval
   visible: VisibleSeries
+  baseline: Baseline
 }
 
 /**
- * Steps and sleep as grouped bars on one shared scale: how far each period is above (+) or
- * below (−) that metric's mean for the selected range. Indexing both to their own mean
- * avoids a dual-axis chart and needs no goals.
+ * Steps and sleep as grouped bars on one shared percentage scale, either as % of each
+ * metric's daily goal or as ± % from each metric's mean for the selected range. Indexing both
+ * to their own baseline avoids a dual-axis chart.
  *
  * Hovering a bar emphasizes its series: that bar darkens, the other series fades across the
  * chart, and the tooltip highlights the matching row.
  */
-export function OverlayChart({ points, interval, visible }: Props) {
+export function OverlayChart({ points, interval, visible, baseline }: Props) {
   const [hovered, setHovered] = useState<MetricId | null>(null)
   const shown = SERIES.filter((id) => visible[id])
 
@@ -76,8 +100,11 @@ export function OverlayChart({ points, interval, visible }: Props) {
   const last = points.at(-1)?.start
   const spansYears = !!first && !!last && parseDay(first).getFullYear() !== parseDay(last).getFullYear()
 
-  const maxAbs = Math.max(0, ...points.flatMap((p) => shown.map((id) => Math.abs(p[PCT_KEY[id]] ?? 0))))
-  const { top, ticks } = symmetricTicks(maxAbs)
+  const values = points.flatMap((p) => shown.map((id) => p[PCT_KEY[id]] ?? 0))
+  const { domain, ticks } =
+    baseline === 'goal'
+      ? goalTicks(Math.max(0, ...values))
+      : symmetricTicks(Math.max(0, ...values.map(Math.abs)))
 
   return (
     <ResponsiveContainer width="100%" height={360}>
@@ -93,31 +120,40 @@ export function OverlayChart({ points, interval, visible }: Props) {
           dataKey="start"
           tickFormatter={(v: string) => tickLabel(v, interval, spansYears)}
           tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-          axisLine={false}
+          axisLine={baseline === 'goal' ? { stroke: 'var(--axis)' } : false}
           tickLine={false}
           minTickGap={24}
         />
         <YAxis
-          tickFormatter={(v: number) => formatSignedPercent(v)}
+          tickFormatter={(v: number) => formatPercent(v, baseline)}
           tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={52}
-          domain={[-top, top]}
+          domain={domain}
           ticks={ticks}
         />
         <Tooltip
           cursor={{ fill: 'var(--hover-band)' }}
           content={(props: TooltipContentProps) => (
-            <OverlayTooltip {...props} interval={interval} shown={shown} hovered={hovered} />
+            <OverlayTooltip {...props} interval={interval} shown={shown} hovered={hovered} baseline={baseline} />
           )}
           isAnimationActive={false}
         />
-        <ReferenceLine
-          y={0}
-          stroke="var(--axis)"
-          label={{ value: 'Average', position: 'right', fill: 'var(--text-secondary)', fontSize: 12 }}
-        />
+        {baseline === 'goal' ? (
+          <ReferenceLine
+            y={100}
+            stroke="var(--text-muted)"
+            strokeDasharray="4 4"
+            label={{ value: 'Goal', position: 'right', fill: 'var(--text-secondary)', fontSize: 12 }}
+          />
+        ) : (
+          <ReferenceLine
+            y={0}
+            stroke="var(--axis)"
+            label={{ value: 'Average', position: 'right', fill: 'var(--text-secondary)', fontSize: 12 }}
+          />
+        )}
         {shown.map((id) => {
           const m = METRICS[id]
           const dimmed = hovered !== null && hovered !== id
@@ -132,7 +168,7 @@ export function OverlayChart({ points, interval, visible }: Props) {
               // one under the mouse, and keep the other series faded.
               activeBar={dimmed ? { fill: m.color, fillOpacity: DIMMED_OPACITY } : { fill: m.colorActive, fillOpacity: 1 }}
               // Recharts mirrors the radius for negative bars, so this rounds the end away
-              // from the average line in both directions.
+              // from the baseline in both directions.
               radius={[4, 4, 0, 0]}
               maxBarSize={24}
               isAnimationActive={false}
@@ -152,7 +188,8 @@ function OverlayTooltip({
   interval,
   shown,
   hovered,
-}: TooltipContentProps & { interval: Interval; shown: MetricId[]; hovered: MetricId | null }) {
+  baseline,
+}: TooltipContentProps & { interval: Interval; shown: MetricId[]; hovered: MetricId | null; baseline: Baseline }) {
   if (!active || !payload?.length) return null
   const p = payload[0].payload as OverlayPoint
   const perDay = interval !== 'daily'
@@ -173,11 +210,14 @@ function OverlayTooltip({
             <span className="swatch" style={{ background: METRICS[id].color }} aria-hidden />
             <span>{r.label}</span>
             <strong>{r.pct === null ? '—' : METRICS[id].formatValue(r.bucket.averagePerDay)}</strong>
-            <span className="tooltip-pct">{r.pct === null ? '' : formatSignedPercent(r.pct)}</span>
+            <span className="tooltip-pct">{r.pct === null ? '' : formatPercent(r.pct, baseline)}</span>
           </div>
         )
       })}
-      <div className="tooltip-muted">vs. average (mean) for the selected period{perDay ? ', per-day averages' : ''}</div>
+      <div className="tooltip-muted">
+        {baseline === 'goal' ? '% of daily goal' : 'vs. average (mean) for the selected period'}
+        {perDay ? ', per-day averages' : ''}
+      </div>
     </div>
   )
 }
