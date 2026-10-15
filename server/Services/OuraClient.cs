@@ -10,18 +10,26 @@ namespace OuraViz.Api.Services;
 /// </summary>
 public class OuraClient(HttpClient http, OuraTokenService tokens)
 {
-    public async Task<List<OuraDailyActivity>> GetDailyActivityAsync(DateOnly start, DateOnly end, CancellationToken ct)
+    public Task<List<OuraDailyActivity>> GetDailyActivityAsync(DateOnly start, DateOnly end, CancellationToken ct) =>
+        GetCollectionAsync<OuraDailyActivity>("daily_activity", start, end, ct);
+
+    /// <summary>Individual sleep periods (a night's sleep, naps, rest); several may share a day.</summary>
+    public Task<List<OuraSleepPeriod>> GetSleepPeriodsAsync(DateOnly start, DateOnly end, CancellationToken ct) =>
+        GetCollectionAsync<OuraSleepPeriod>("sleep", start, end, ct);
+
+    /// <summary>Reads every page of a /v2/usercollection endpoint for the given day range.</summary>
+    private async Task<List<T>> GetCollectionAsync<T>(string collection, DateOnly start, DateOnly end, CancellationToken ct)
     {
-        var results = new List<OuraDailyActivity>();
+        var results = new List<T>();
         string? nextToken = null;
 
         do
         {
-            // Oura treats end_date as exclusive for daily collections, so ask for one extra day.
-            var url = $"v2/usercollection/daily_activity?start_date={start:yyyy-MM-dd}&end_date={end.AddDays(1):yyyy-MM-dd}";
+            // Oura treats end_date as exclusive for these collections, so ask for one extra day.
+            var url = $"v2/usercollection/{collection}?start_date={start:yyyy-MM-dd}&end_date={end.AddDays(1):yyyy-MM-dd}";
             if (nextToken is not null) url += $"&next_token={Uri.EscapeDataString(nextToken)}";
 
-            var page = await GetAsync<OuraPage<OuraDailyActivity>>(url, ct);
+            var page = await GetAsync<OuraPage<T>>(url, ct);
             results.AddRange(page.Data);
             nextToken = page.NextToken;
         } while (nextToken is not null);
@@ -71,3 +79,15 @@ public record OuraDailyActivity(
     [property: JsonPropertyName("active_calories")] int ActiveCalories,
     [property: JsonPropertyName("total_calories")] int TotalCalories,
     [property: JsonPropertyName("score")] int? Score);
+
+/// <summary>One sleep period. Durations are seconds and may be null for incomplete periods.</summary>
+public record OuraSleepPeriod(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("day")] DateOnly Day,
+    [property: JsonPropertyName("type")] string? Type,
+    [property: JsonPropertyName("total_sleep_duration")] int? TotalSleepDuration,
+    [property: JsonPropertyName("time_in_bed")] int? TimeInBed,
+    [property: JsonPropertyName("deep_sleep_duration")] int? DeepSleepDuration,
+    [property: JsonPropertyName("rem_sleep_duration")] int? RemSleepDuration,
+    [property: JsonPropertyName("light_sleep_duration")] int? LightSleepDuration,
+    [property: JsonPropertyName("awake_time")] int? AwakeTime);

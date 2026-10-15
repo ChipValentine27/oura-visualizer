@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
-import { api, type DataRange, type Interval, type OuraStatus, type StepsResponse } from './api'
-import { StepsChart, type Metric } from './components/StepsChart'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { api, type DataRange, type Interval, type MetricId, type OuraStatus, type SeriesResponse } from './api'
+import { MetricChart, type Aggregate } from './components/MetricChart'
+import { OverlayChart, toOverlayPoints, type OverlayPoint, type VisibleSeries } from './components/OverlayChart'
 import { addDays, bucketLabel, formatNumber, today } from './dates'
+import { METRICS, type MetricConfig } from './metrics'
+
+type View = 'steps' | 'sleep' | 'overlay'
+
+const VIEWS: { value: View; label: string }[] = [
+  { value: 'steps', label: 'Steps' },
+  { value: 'sleep', label: 'Sleep' },
+  { value: 'overlay', label: 'Steps + Sleep' },
+]
 
 const INTERVALS: { value: Interval; label: string }[] = [
   { value: 'daily', label: 'Daily' },
@@ -19,16 +29,21 @@ const PRESETS: { label: string; days: number }[] = [
   { label: '3Y', days: 365 * 3 },
 ]
 
-const DAILY_GOAL = 10_000
+interface Series {
+  steps: SeriesResponse
+  sleep: SeriesResponse
+}
 
 export default function App() {
   const [range, setRange] = useState<DataRange | null>(null)
   const [start, setStart] = useState(() => addDays(today(), -89))
   const [end, setEnd] = useState(today)
   const [interval, setInterval] = useState<Interval>('daily')
-  const [metric, setMetric] = useState<Metric>('total')
+  const [view, setView] = useState<View>('steps')
+  const [aggregate, setAggregate] = useState<Aggregate>('total')
+  const [visibleSeries, setVisibleSeries] = useState<VisibleSeries>({ steps: true, sleep: true })
   const [showTable, setShowTable] = useState(false)
-  const [data, setData] = useState<StepsResponse | null>(null)
+  const [data, setData] = useState<Series | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [oura, setOura] = useState<OuraStatus | null>(null)
@@ -68,14 +83,17 @@ export default function App() {
       .catch((e: Error) => setError(e.message))
   }, [loadMeta])
 
+  // Both series are small, so fetch them together; switching views is then instant.
   useEffect(() => {
     if (start > end) return
     const ctrl = new AbortController()
     setLoading(true)
-    api
-      .steps(start, end, interval, ctrl.signal)
-      .then((d) => {
-        setData(d)
+    Promise.all([
+      api.series('steps', start, end, interval, ctrl.signal),
+      api.series('sleep', start, end, interval, ctrl.signal),
+    ])
+      .then(([steps, sleep]) => {
+        setData({ steps, sleep })
         setError(null)
       })
       .catch((e: Error) => {
@@ -105,17 +123,18 @@ export default function App() {
     }
   }
 
-  const hasAnyData = (range?.dayCount ?? 0) > 0
+  const hasAnyData = (range?.activityDays ?? 0) + (range?.sleepDays ?? 0) > 0
   const rangeInvalid = start > end
+  const effectiveAggregate: Aggregate = interval === 'daily' ? 'total' : aggregate
 
   return (
     <main className="page">
       <header className="page-header">
         <div>
-          <h1>Steps</h1>
+          <h1>Oura Visualizer</h1>
           <p className="subtle">
             {hasAnyData
-              ? `${formatNumber(range!.dayCount)} days stored · ${range!.firstDay} to ${range!.lastDay}`
+              ? `${formatNumber(range!.activityDays)} days of activity · ${formatNumber(range!.sleepDays)} nights of sleep · ${range!.firstDay} to ${range!.lastDay}`
               : 'No data yet. Load demo data or connect Oura to get started.'}
           </p>
         </div>
@@ -129,17 +148,13 @@ export default function App() {
           </button>
           {oura?.connected ? (
             <>
-              <button
-                className="btn"
-                disabled={!!busy}
-                onClick={() => runAction('disconnect', api.ouraDisconnect)}
-              >
+              <button className="btn" disabled={!!busy} onClick={() => runAction('disconnect', api.ouraDisconnect)}>
                 {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect Oura'}
               </button>
               <button
                 className="btn btn-primary"
                 disabled={!!busy || rangeInvalid}
-                title={`Sync ${start} to ${end} from Oura`}
+                title={`Sync steps and sleep for ${start} to ${end} from Oura`}
                 onClick={() => runAction('oura', () => api.syncOura(start, end))}
               >
                 {busy === 'oura' ? 'Syncing…' : 'Sync from Oura'}
@@ -166,6 +181,20 @@ export default function App() {
           {notice.text}
         </div>
       )}
+
+      <nav className="tabs" role="tablist" aria-label="Metric">
+        {VIEWS.map((v) => (
+          <button
+            key={v.value}
+            role="tab"
+            aria-selected={view === v.value}
+            className={view === v.value ? 'selected' : ''}
+            onClick={() => setView(v.value)}
+          >
+            {v.label}
+          </button>
+        ))}
+      </nav>
 
       <section className="filters" aria-label="Filters">
         <label className="field">
@@ -202,81 +231,261 @@ export default function App() {
       {error && <div className="error" role="alert">{error}</div>}
       {rangeInvalid && <div className="error" role="alert">“From” must be on or before “To”.</div>}
 
-      {data && (
-        <>
-          <section className="stats" aria-label="Summary">
-            <Stat label="Total steps" value={formatNumber(data.totalSteps)} hero />
-            <Stat label="Daily average" value={formatNumber(data.averageDailySteps)} />
-            <Stat label="Days with data" value={`${formatNumber(data.daysWithData)}`} />
-          </section>
-
-          <section className="card" aria-busy={loading}>
-            <div className="card-header">
-              <h2>{metric === 'total' ? 'Total steps' : 'Average steps per day'} by {UNIT[interval]}</h2>
-              <div className="card-tools">
-                {interval !== 'daily' && (
-                  <div className="segmented small" role="radiogroup" aria-label="Metric">
-                    <button role="radio" aria-checked={metric === 'total'} className={metric === 'total' ? 'selected' : ''} onClick={() => setMetric('total')}>
-                      Total
-                    </button>
-                    <button role="radio" aria-checked={metric === 'average'} className={metric === 'average' ? 'selected' : ''} onClick={() => setMetric('average')}>
-                      Daily avg
-                    </button>
-                  </div>
-                )}
-                <button className="link" onClick={() => setShowTable((s) => !s)}>
-                  {showTable ? 'Hide table' : 'Show table'}
-                </button>
-              </div>
-            </div>
-
-            {data.daysWithData === 0 ? (
-              <div className="empty">No step data in this range.</div>
-            ) : (
-              <StepsChart
-                buckets={data.buckets}
-                interval={data.interval}
-                metric={data.interval === 'daily' ? 'total' : metric}
-                goal={DAILY_GOAL}
-              />
-            )}
-
-            {showTable && (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Period</th>
-                      <th className="num">Total steps</th>
-                      <th className="num">Daily average</th>
-                      <th className="num">Days with data</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.buckets.map((b) => (
-                      <tr key={b.start}>
-                        <td>{bucketLabel(b.start, b.end, data.interval)}</td>
-                        <td className="num">{formatNumber(b.totalSteps)}</td>
-                        <td className="num">{formatNumber(b.averageDailySteps)}</td>
-                        <td className="num">{b.daysWithData}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </>
-      )}
+      {data &&
+        (view === 'overlay' ? (
+          <OverlayView
+            data={data}
+            interval={data.steps.interval}
+            visible={visibleSeries}
+            onToggleSeries={(id) => setVisibleSeries((v) => ({ ...v, [id]: !v[id] }))}
+            loading={loading}
+            showTable={showTable}
+            onToggleTable={() => setShowTable((s) => !s)}
+          />
+        ) : (
+          <SingleView
+            metric={METRICS[view]}
+            series={data[view]}
+            aggregate={effectiveAggregate}
+            onAggregate={setAggregate}
+            loading={loading}
+            showTable={showTable}
+            onToggleTable={() => setShowTable((s) => !s)}
+          />
+        ))}
     </main>
   )
 }
 
-function Stat({ label, value, hero }: { label: string; value: string; hero?: boolean }) {
+interface SingleViewProps {
+  metric: MetricConfig
+  series: SeriesResponse
+  aggregate: Aggregate
+  onAggregate: (a: Aggregate) => void
+  loading: boolean
+  showTable: boolean
+  onToggleTable: () => void
+}
+
+function SingleView({ metric, series, aggregate, onAggregate, loading, showTable, onToggleTable }: SingleViewProps) {
+  const { interval } = series
+  // For sleep the nightly average is the headline; for steps it is the total walked.
+  const heroIsAverage = metric.id === 'sleep'
+  const title = `${aggregate === 'total' ? metric.totalLabel : `${metric.label}, average per ${metric.id === 'sleep' ? 'night' : 'day'}`} by ${UNIT[interval]}`
+
+  return (
+    <>
+      <section className="stats" aria-label="Summary">
+        {heroIsAverage ? (
+          <>
+            <Stat label={metric.averageLabel} value={metric.formatValue(series.averagePerDay)} hero />
+            <Stat label={metric.totalLabel} value={metric.formatValue(series.total)} />
+          </>
+        ) : (
+          <>
+            <Stat label={metric.totalLabel} value={metric.formatValue(series.total)} hero />
+            <Stat label={metric.averageLabel} value={metric.formatValue(series.averagePerDay)} />
+          </>
+        )}
+        <Stat label={`${capitalize(metric.dayNoun)} with data`} value={formatNumber(series.daysWithData)} />
+      </section>
+
+      <section className="card" aria-busy={loading}>
+        <div className="card-header">
+          <h2>{title}</h2>
+          <div className="card-tools">
+            {interval !== 'daily' && (
+              <div className="segmented small" role="radiogroup" aria-label="Aggregate">
+                <button role="radio" aria-checked={aggregate === 'total'} className={aggregate === 'total' ? 'selected' : ''} onClick={() => onAggregate('total')}>
+                  Total
+                </button>
+                <button role="radio" aria-checked={aggregate === 'average'} className={aggregate === 'average' ? 'selected' : ''} onClick={() => onAggregate('average')}>
+                  {metric.id === 'sleep' ? 'Nightly avg' : 'Daily avg'}
+                </button>
+              </div>
+            )}
+            <button className="link" onClick={onToggleTable}>
+              {showTable ? 'Hide table' : 'Show table'}
+            </button>
+          </div>
+        </div>
+
+        {series.daysWithData === 0 ? (
+          <div className="empty">No {metric.label.toLowerCase()} data in this range.</div>
+        ) : (
+          <MetricChart metric={metric} buckets={series.buckets} interval={interval} aggregate={aggregate} />
+        )}
+
+        {showTable && (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th className="num">{metric.totalLabel}</th>
+                  <th className="num">{metric.averageLabel}</th>
+                  <th className="num">{capitalize(metric.dayNoun)} with data</th>
+                </tr>
+              </thead>
+              <tbody>
+                {series.buckets.map((b) => (
+                  <tr key={b.start}>
+                    <td>{bucketLabel(b.start, b.end, interval)}</td>
+                    <td className="num">{b.daysWithData ? metric.formatValue(b.total) : '—'}</td>
+                    <td className="num">{b.daysWithData ? metric.formatValue(b.averagePerDay) : '—'}</td>
+                    <td className="num">{b.daysWithData}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  )
+}
+
+interface OverlayViewProps {
+  data: Series
+  interval: Interval
+  visible: VisibleSeries
+  onToggleSeries: (id: MetricId) => void
+  loading: boolean
+  showTable: boolean
+  onToggleTable: () => void
+}
+
+const OVERLAY_SERIES: MetricId[] = ['steps', 'sleep']
+
+function OverlayView({ data, interval, visible, onToggleSeries, loading, showTable, onToggleTable }: OverlayViewProps) {
+  const points = useMemo(() => toOverlayPoints(data.steps.buckets, data.sleep.buckets), [data])
+  const shown = OVERLAY_SERIES.filter((id) => visible[id])
+  const noData = shown.every((id) => data[id].daysWithData === 0)
+  const perDay = interval !== 'daily'
+  const goals = shown.map((id) => `${METRICS[id].goalLabel.replace(' goal', '')} ${METRICS[id].id}`).join(', ')
+  const pctOf = (p: OverlayPoint, id: MetricId) => (id === 'steps' ? p.stepsPct : p.sleepPct)
+
+  return (
+    <>
+      <section className="stats stats-even" aria-label="Summary">
+        {shown.map((id) => (
+          <Stat
+            key={id}
+            label={id === 'steps' ? 'Steps, daily average' : 'Sleep, nightly average'}
+            value={METRICS[id].formatValue(data[id].averagePerDay)}
+            swatch={METRICS[id].color}
+          />
+        ))}
+        <Stat
+          label={capitalize(shown.map((id) => METRICS[id].dayNoun).join(' / ')) + ' with data'}
+          value={shown.map((id) => formatNumber(data[id].daysWithData)).join(' / ')}
+        />
+      </section>
+
+      <section className="card" aria-busy={loading}>
+        <div className="card-header">
+          <div>
+            <h2>
+              {shown.map((id) => METRICS[id].label).join(' and ')} vs. daily goal, by {UNIT[interval]}
+            </h2>
+            <p className="card-sub">
+              As a percentage of the daily goal ({goals}){perDay ? ', using per-day averages' : ''}
+              {shown.length > 1 ? ', so both share one scale.' : '.'}
+            </p>
+          </div>
+          <div className="card-tools">
+            <button className="link" onClick={onToggleTable}>
+              {showTable ? 'Hide table' : 'Show table'}
+            </button>
+          </div>
+        </div>
+
+        <fieldset className="series-toggles">
+          <legend className="visually-hidden">Series shown on the chart</legend>
+          {OVERLAY_SERIES.map((id) => {
+            const m = METRICS[id]
+            // Keep at least one series on the chart.
+            const isLastOn = visible[id] && shown.length === 1
+            return (
+              <label key={id} className="series-toggle" title={isLastOn ? 'At least one series must be shown' : undefined}>
+                <input
+                  type="checkbox"
+                  checked={visible[id]}
+                  disabled={isLastOn}
+                  onChange={() => onToggleSeries(id)}
+                  style={{ accentColor: m.color }}
+                />
+                <span className="swatch" style={{ background: m.color }} aria-hidden />
+                {m.label}
+              </label>
+            )
+          })}
+        </fieldset>
+
+        {noData ? (
+          <div className="empty">No data in this range.</div>
+        ) : (
+          <OverlayChart points={points} interval={interval} visible={visible} />
+        )}
+
+        {showTable && (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  {shown.map((id) => (
+                    <Fragment key={id}>
+                      <th className="num">{id === 'steps' ? (perDay ? 'Steps / day' : 'Steps') : perDay ? 'Sleep / night' : 'Sleep'}</th>
+                      <th className="num">% of goal</th>
+                    </Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {points.map((p) => (
+                  <tr key={p.start}>
+                    <td>{bucketLabel(p.start, p.end, interval)}</td>
+                    {shown.map((id) => {
+                      const pct = pctOf(p, id)
+                      return (
+                        <Fragment key={id}>
+                          <td className="num">{pct === null ? '—' : METRICS[id].formatValue(p[id].averagePerDay)}</td>
+                          <td className="num">{pct === null ? '—' : `${pct}%`}</td>
+                        </Fragment>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  )
+}
+
+function Stat({
+  label,
+  value,
+  hero,
+  swatch,
+}: {
+  label: string
+  value: string
+  hero?: boolean
+  swatch?: string
+}) {
   return (
     <div className={`stat ${hero ? 'stat-hero' : ''}`}>
-      <div className="stat-label">{label}</div>
+      <div className="stat-label">
+        {swatch && <span className="swatch" style={{ background: swatch }} aria-hidden />}
+        {label}
+      </div>
       <div className="stat-value">{value}</div>
     </div>
   )
 }
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)

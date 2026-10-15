@@ -5,9 +5,9 @@ namespace OuraViz.Api.Controllers;
 
 [ApiController]
 [Route("api/sync")]
-public class SyncController(ActivitySyncService sync) : ControllerBase
+public class SyncController(OuraSyncService sync) : ControllerBase
 {
-    /// <summary>POST /api/sync/oura?start=2024-01-01&amp;end=2024-12-31 pulls daily activity from the Oura API.</summary>
+    /// <summary>POST /api/sync/oura?start=2024-01-01&amp;end=2024-12-31 pulls daily activity and sleep from the Oura API.</summary>
     [HttpPost("oura")]
     public async Task<IActionResult> SyncOura([FromQuery] DateOnly start, [FromQuery] DateOnly end, CancellationToken ct)
     {
@@ -15,8 +15,7 @@ public class SyncController(ActivitySyncService sync) : ControllerBase
 
         try
         {
-            var count = await sync.SyncFromOuraAsync(start, end, ct);
-            return Ok(new { daysSynced = count });
+            return Ok(await sync.SyncFromOuraAsync(start, end, ct));
         }
         catch (OuraNotConnectedException ex)
         {
@@ -33,7 +32,6 @@ public class SyncController(ActivitySyncService sync) : ControllerBase
     public async Task<IActionResult> SeedDemo([FromQuery] DateOnly start, [FromQuery] DateOnly end, CancellationToken ct)
     {
         if (end < start) return BadRequest("end must be on or after start.");
-        var count = await sync.SeedDemoAsync(start, end, ct);
-        return Ok(new { daysSeeded = count });
+        return Ok(await sync.SeedDemoAsync(start, end, ct));
     }
 }

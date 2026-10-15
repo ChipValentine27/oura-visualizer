@@ -1,27 +1,24 @@
-using OuraViz.Api.Models;
-
 namespace OuraViz.Api.Services;
 
 public enum Interval { Daily, Weekly, Monthly, Yearly }
 
-public record StepBucket(
+public record MetricBucket(
     DateOnly Start,
     DateOnly End,
-    long TotalSteps,
+    long Total,
     int DaysWithData,
-    int AverageDailySteps);
+    long AveragePerDay);
 
-public static class StepAggregator
+public static class MetricAggregator
 {
     /// <summary>
-    /// Groups daily rows into contiguous buckets covering [start, end]. Buckets with no data
+    /// Groups per-day values into contiguous buckets covering [start, end]. Buckets with no data
     /// are still emitted (with zeros) so gaps stay visible on the chart instead of collapsing.
     /// Partial first/last buckets are clipped to the requested range.
     /// </summary>
-    public static List<StepBucket> Aggregate(IEnumerable<DailyActivity> days, DateOnly start, DateOnly end, Interval interval)
+    public static List<MetricBucket> Aggregate(IReadOnlyDictionary<DateOnly, long> byDay, DateOnly start, DateOnly end, Interval interval)
     {
-        var byDay = days.ToDictionary(d => d.Day, d => d.Steps);
-        var buckets = new List<StepBucket>();
+        var buckets = new List<MetricBucket>();
 
         for (var bucketStart = BucketStart(start, interval); bucketStart <= end; bucketStart = Next(bucketStart, interval))
         {
@@ -33,14 +30,14 @@ public static class StepAggregator
             var count = 0;
             for (var d = from; d <= to; d = d.AddDays(1))
             {
-                if (byDay.TryGetValue(d, out var steps))
+                if (byDay.TryGetValue(d, out var value))
                 {
-                    total += steps;
+                    total += value;
                     count++;
                 }
             }
 
-            buckets.Add(new StepBucket(from, to, total, count, count == 0 ? 0 : (int)Math.Round((double)total / count)));
+            buckets.Add(new MetricBucket(from, to, total, count, count == 0 ? 0 : (long)Math.Round((double)total / count)));
         }
 
         return buckets;

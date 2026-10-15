@@ -25,7 +25,7 @@ var ouraApi = new Uri("https://api.ouraring.com/");
 builder.Services.AddHttpClient(OuraTokenService.HttpClientName, c => c.BaseAddress = ouraApi);
 builder.Services.AddHttpClient<OuraClient>(c => c.BaseAddress = ouraApi);
 builder.Services.AddScoped<OuraTokenService>();
-builder.Services.AddScoped<ActivitySyncService>();
+builder.Services.AddScoped<OuraSyncService>();
 
 var app = builder.Build();
 

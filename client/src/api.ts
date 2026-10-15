@@ -1,27 +1,37 @@
 export type Interval = 'daily' | 'weekly' | 'monthly' | 'yearly'
+export type MetricId = 'steps' | 'sleep'
 
-export interface StepBucket {
+export interface Bucket {
   start: string
   end: string
-  totalSteps: number
+  /** Steps are counts; sleep is seconds. */
+  total: number
   daysWithData: number
-  averageDailySteps: number
+  averagePerDay: number
 }
 
-export interface StepsResponse {
+export interface SeriesResponse {
+  metric: MetricId
+  unit: 'steps' | 'seconds'
   start: string
   end: string
   interval: Interval
-  buckets: StepBucket[]
-  totalSteps: number
+  buckets: Bucket[]
+  total: number
   daysWithData: number
-  averageDailySteps: number
+  averagePerDay: number
 }
 
 export interface DataRange {
   firstDay: string | null
   lastDay: string | null
-  dayCount: number
+  activityDays: number
+  sleepDays: number
+}
+
+export interface SyncResult {
+  activityDays: number
+  sleepDays: number
 }
 
 export interface OuraStatus {
@@ -49,9 +59,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  steps: (start: string, end: string, interval: Interval, signal?: AbortSignal) =>
-    request<StepsResponse>(`/api/steps?${new URLSearchParams({ start, end, interval })}`, { signal }),
-  range: () => request<DataRange>('/api/steps/range'),
+  series: (metric: MetricId, start: string, end: string, interval: Interval, signal?: AbortSignal) =>
+    request<SeriesResponse>(`/api/metrics/${metric}?${new URLSearchParams({ start, end, interval })}`, { signal }),
+  range: () => request<DataRange>('/api/metrics/range'),
   ouraStatus: () => request<OuraStatus>('/api/oura/status'),
   /** A full-page navigation, not fetch: the server redirects the browser to Oura's consent page. */
   ouraConnectUrl: '/api/oura/connect',
@@ -60,7 +70,7 @@ export const api = {
     if (!res.ok) throw new Error(`Disconnect failed (${res.status})`)
   },
   syncOura: (start: string, end: string) =>
-    request<{ daysSynced: number }>(`/api/sync/oura?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
+    request<SyncResult>(`/api/sync/oura?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
   seedDemo: (start: string, end: string) =>
-    request<{ daysSeeded: number }>(`/api/sync/demo?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
+    request<SyncResult>(`/api/sync/demo?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
 }

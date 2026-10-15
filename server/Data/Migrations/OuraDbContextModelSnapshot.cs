@@ -46,6 +46,40 @@ namespace OuraViz.Api.Data.Migrations
                     b.ToTable("DailyActivities");
                 });
 
+            modelBuilder.Entity("OuraViz.Api.Models.DailySleep", b =>
+                {
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AwakeSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("DeepSleepSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LightSleepSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PeriodCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RemSleepSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TimeInBedSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TotalSleepSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Day");
+
+                    b.ToTable("DailySleep");
+                });
+
             modelBuilder.Entity("OuraViz.Api.Models.OuraToken", b =>
                 {
                     b.Property<int>("Id")

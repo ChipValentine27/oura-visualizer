@@ -17,7 +17,25 @@ npm --prefix client run dev                         # http://localhost:5173
 ```
 
 The database is created and migrated automatically on startup.
-Click **Load demo data** to explore the UI with three years of synthetic steps.
+Click **Load demo data** to explore the UI with three years of synthetic steps and sleep.
+
+## Views
+
+All views share the date range (From/To and the 30D/90D/1Y/3Y presets) and the
+Daily/Weekly/Monthly/Yearly interval.
+
+- **Steps**: total steps per period, or the daily average (10K goal line).
+- **Sleep**: total sleep per period, or the nightly average (8h goal line).
+  A day's sleep is the sum of Oura's sleep periods for that day (main sleep
+  plus naps); "rest" periods are excluded.
+- **Steps + Sleep**: grouped bars on one chart, each as a percentage of its own
+  daily goal (per-day averages for weekly and longer intervals). Using a shared
+  percentage scale instead of two y-axes keeps the comparison honest; the
+  tooltip and table show the raw values. Goals live in `client/src/metrics.ts`.
+  - Checkboxes above the chart add or remove each series (at least one stays on);
+    the stats, heading and table follow the selection.
+  - Hovering a bar darkens it, fades the other series, and highlights its row
+    in the tooltip. Hovering the gap between bars shows the whole period.
 
 ## Connecting your Oura data
 
@@ -61,13 +79,13 @@ registered).
 
 | Method | Route | Purpose |
 |---|---|---|
-| GET  | `/api/steps?start=&end=&interval=daily\|weekly\|monthly\|yearly` | Bucketed totals + daily averages |
-| GET  | `/api/steps/range` | First/last day stored |
+| GET  | `/api/metrics/{steps\|sleep}?start=&end=&interval=daily\|weekly\|monthly\|yearly` | Bucketed totals + per-day averages (sleep in seconds) |
+| GET  | `/api/metrics/range` | First/last day stored, activity days and sleep nights |
 | GET  | `/api/oura/status` | Client configured? Connected? Token expiry |
 | GET  | `/api/oura/connect` | Starts OAuth (browser navigation, redirects to Oura) |
 | GET  | `/api/oura/callback` | OAuth redirect target; returns to `/?oura=connected\|error` |
 | POST | `/api/oura/disconnect` | Revoke and forget the Oura tokens |
-| POST | `/api/sync/oura?start=&end=` | Pull daily activity from Oura (409 if not connected) |
+| POST | `/api/sync/oura?start=&end=` | Pull daily activity and sleep from Oura (409 if not connected) |
 | POST | `/api/sync/demo?start=&end=` | Seed synthetic data |
 
 Weeks are ISO weeks (Monday start). Buckets that straddle the chosen range are
