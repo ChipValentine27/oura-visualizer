@@ -12,21 +12,23 @@ import {
 } from 'recharts'
 import type { Bucket, Interval, MetricId } from '../api'
 import { bucketLabel, parseDay, tickLabel } from '../dates'
-import { METRICS, percentOfGoal } from '../metrics'
+import { formatSignedPercent, METRICS, percentFromMedian } from '../metrics'
 
 export interface OverlayPoint {
   start: string
   end: string
   steps: Bucket
   sleep: Bucket
+  /** ± % of each bucket's per-day average versus the selected period's median. */
   stepsPct: number | null
   sleepPct: number | null
 }
 
 export type VisibleSeries = Record<MetricId, boolean>
+export type Medians = Record<MetricId, number>
 
 /** Pairs the two series bucket-by-bucket; both come from the same range and interval. */
-export function toOverlayPoints(steps: Bucket[], sleep: Bucket[]): OverlayPoint[] {
+export function toOverlayPoints(steps: Bucket[], sleep: Bucket[], medians: Medians): OverlayPoint[] {
   return steps.map((s, i) => {
     const z = sleep[i]
     return {
@@ -34,8 +36,8 @@ export function toOverlayPoints(steps: Bucket[], sleep: Bucket[]): OverlayPoint[
       end: s.end,
       steps: s,
       sleep: z,
-      stepsPct: percentOfGoal(s.averagePerDay, s.daysWithData, METRICS.steps.goal),
-      sleepPct: z ? percentOfGoal(z.averagePerDay, z.daysWithData, METRICS.sleep.goal) : null,
+      stepsPct: percentFromMedian(s.averagePerDay, s.daysWithData, medians.steps),
+      sleepPct: z ? percentFromMedian(z.averagePerDay, z.daysWithData, medians.sleep) : null,
     }
   })
 }
@@ -43,6 +45,14 @@ export function toOverlayPoints(steps: Bucket[], sleep: Bucket[]): OverlayPoint[
 const SERIES: MetricId[] = ['steps', 'sleep']
 const PCT_KEY: Record<MetricId, 'stepsPct' | 'sleepPct'> = { steps: 'stepsPct', sleep: 'sleepPct' }
 const DIMMED_OPACITY = 0.3
+const NICE_STEPS = [5, 10, 20, 25, 50, 100, 200]
+
+/** Symmetric ticks around 0 at a round step, at most ~4 per side. */
+function symmetricTicks(maxAbs: number) {
+  const step = NICE_STEPS.find((s) => maxAbs / s <= 4) ?? NICE_STEPS.at(-1)!
+  const top = Math.max(step, Math.ceil(maxAbs / step) * step)
+  return { top, ticks: Array.from({ length: (2 * top) / step + 1 }, (_, i) => -top + i * step) }
+}
 
 interface Props {
   points: OverlayPoint[]
@@ -51,9 +61,9 @@ interface Props {
 }
 
 /**
- * Steps and sleep as grouped bars on one shared scale: each as a percentage of its own daily
- * goal. Indexing to a common base avoids a dual-axis chart, where the apparent relationship
- * between the series would depend on how the two axes happened to be scaled.
+ * Steps and sleep as grouped bars on one shared scale: how far each period is above (+) or
+ * below (−) that metric's median for the selected range. Indexing both to their own median
+ * avoids a dual-axis chart and needs no goals.
  *
  * Hovering a bar emphasizes its series: that bar darkens, the other series fades across the
  * chart, and the tooltip highlights the matching row.
@@ -66,16 +76,14 @@ export function OverlayChart({ points, interval, visible }: Props) {
   const last = points.at(-1)?.start
   const spansYears = !!first && !!last && parseDay(first).getFullYear() !== parseDay(last).getFullYear()
 
-  // Ticks every 25% so the 100% goal always sits on a gridline; scale only to visible series.
-  const maxPct = Math.max(0, ...points.flatMap((p) => shown.map((id) => p[PCT_KEY[id]] ?? 0)))
-  const top = Math.max(125, Math.ceil(maxPct / 25) * 25)
-  const ticks = Array.from({ length: top / 25 + 1 }, (_, i) => i * 25)
+  const maxAbs = Math.max(0, ...points.flatMap((p) => shown.map((id) => Math.abs(p[PCT_KEY[id]] ?? 0))))
+  const { top, ticks } = symmetricTicks(maxAbs)
 
   return (
     <ResponsiveContainer width="100%" height={360}>
       <BarChart
         data={points}
-        margin={{ top: 16, right: 56, bottom: 0, left: 0 }}
+        margin={{ top: 16, right: 64, bottom: 0, left: 0 }}
         barCategoryGap="20%"
         barGap={2}
         onMouseLeave={() => setHovered(null)}
@@ -85,17 +93,17 @@ export function OverlayChart({ points, interval, visible }: Props) {
           dataKey="start"
           tickFormatter={(v: string) => tickLabel(v, interval, spansYears)}
           tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-          axisLine={{ stroke: 'var(--axis)' }}
+          axisLine={false}
           tickLine={false}
           minTickGap={24}
         />
         <YAxis
-          tickFormatter={(v: number) => `${v}%`}
+          tickFormatter={(v: number) => formatSignedPercent(v)}
           tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
-          width={48}
-          domain={[0, top]}
+          width={52}
+          domain={[-top, top]}
           ticks={ticks}
         />
         <Tooltip
@@ -106,10 +114,9 @@ export function OverlayChart({ points, interval, visible }: Props) {
           isAnimationActive={false}
         />
         <ReferenceLine
-          y={100}
-          stroke="var(--text-muted)"
-          strokeDasharray="4 4"
-          label={{ value: 'Goal', position: 'right', fill: 'var(--text-secondary)', fontSize: 12 }}
+          y={0}
+          stroke="var(--axis)"
+          label={{ value: 'Median', position: 'right', fill: 'var(--text-secondary)', fontSize: 12 }}
         />
         {shown.map((id) => {
           const m = METRICS[id]
@@ -124,6 +131,8 @@ export function OverlayChart({ points, interval, visible }: Props) {
               // The shared tooltip activates every bar in the hovered period; only darken the
               // one under the mouse, and keep the other series faded.
               activeBar={dimmed ? { fill: m.color, fillOpacity: DIMMED_OPACITY } : { fill: m.colorActive, fillOpacity: 1 }}
+              // Recharts mirrors the radius for negative bars, so this rounds the end away
+              // from the median line in both directions.
               radius={[4, 4, 0, 0]}
               maxBarSize={24}
               isAnimationActive={false}
@@ -164,11 +173,11 @@ function OverlayTooltip({
             <span className="swatch" style={{ background: METRICS[id].color }} aria-hidden />
             <span>{r.label}</span>
             <strong>{r.pct === null ? '—' : METRICS[id].formatValue(r.bucket.averagePerDay)}</strong>
-            <span className="tooltip-pct">{r.pct === null ? '' : `${r.pct}%`}</span>
+            <span className="tooltip-pct">{r.pct === null ? '' : formatSignedPercent(r.pct)}</span>
           </div>
         )
       })}
-      {perDay && <div className="tooltip-muted">% of daily goal, per-day averages</div>}
+      <div className="tooltip-muted">vs. median for the selected period{perDay ? ', per-day averages' : ''}</div>
     </div>
   )
 }

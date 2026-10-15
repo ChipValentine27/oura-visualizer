@@ -20,6 +20,8 @@ export interface SeriesResponse {
   total: number
   daysWithData: number
   averagePerDay: number
+  /** Median of the daily values in the range (days without data are skipped). */
+  medianPerDay: number
 }
 
 export interface DataRange {

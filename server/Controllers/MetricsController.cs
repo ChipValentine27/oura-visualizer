@@ -46,7 +46,17 @@ public class MetricsController(OuraDbContext db) : ControllerBase
             MetricAggregator.Aggregate(byDay, start, end, interval),
             Total: total,
             DaysWithData: byDay.Count,
-            AveragePerDay: byDay.Count == 0 ? 0 : (long)Math.Round((double)total / byDay.Count));
+            AveragePerDay: byDay.Count == 0 ? 0 : (long)Math.Round((double)total / byDay.Count),
+            MedianPerDay: Median(byDay.Values));
+    }
+
+    /// <summary>Median of the daily values (days without data are skipped), or 0 when there are none.</summary>
+    private static long Median(IEnumerable<long> values)
+    {
+        var sorted = values.Order().ToArray();
+        if (sorted.Length == 0) return 0;
+        var mid = sorted.Length / 2;
+        return sorted.Length % 2 == 1 ? sorted[mid] : (long)Math.Round((sorted[mid - 1] + sorted[mid]) / 2.0);
     }
 
     /// <summary>The span of days that have any data, used to default the date pickers.</summary>
@@ -67,6 +77,6 @@ public class MetricsController(OuraDbContext db) : ControllerBase
 
 public record SeriesResponse(
     Metric Metric, string Unit, DateOnly Start, DateOnly End, Interval Interval,
-    List<MetricBucket> Buckets, long Total, int DaysWithData, long AveragePerDay);
+    List<MetricBucket> Buckets, long Total, int DaysWithData, long AveragePerDay, long MedianPerDay);
 
 public record DataRange(DateOnly? FirstDay, DateOnly? LastDay, int ActivityDays, int SleepDays);

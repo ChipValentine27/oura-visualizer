@@ -52,6 +52,12 @@ export const METRICS: Record<MetricId, MetricConfig> = {
   },
 }
 
-/** Share of the daily goal as a whole percentage, or null when there is no data. */
-export const percentOfGoal = (averagePerDay: number, daysWithData: number, goal: number) =>
-  daysWithData === 0 ? null : Math.round((averagePerDay / goal) * 100)
+/**
+ * How far a per-day value sits above (+) or below (−) the period's median, as a whole
+ * percentage. Null when there is no data or no median to compare against.
+ */
+export const percentFromMedian = (averagePerDay: number, daysWithData: number, median: number) =>
+  daysWithData === 0 || median <= 0 ? null : Math.round(((averagePerDay - median) / median) * 100)
+
+/** "+12%", "−8%" (true minus sign), "0%". */
+export const formatSignedPercent = (pct: number) => (pct > 0 ? `+${pct}%` : pct < 0 ? `−${-pct}%` : '0%')
