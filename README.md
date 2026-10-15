@@ -19,33 +19,42 @@ npm --prefix client run dev                         # http://localhost:5173
 The database is created and migrated automatically on startup.
 Click **Load demo data** to explore the UI with three years of synthetic steps and sleep.
 
-## Views
+## Health Visualizer
 
-All views share the date range (From/To and the 30D/90D/1Y/3Y presets) and the
-Daily/Weekly/Monthly/Yearly interval.
+The app has a single view, **Health Visualizer**: steps and sleep as grouped
+bars on one chart, on a shared percentage scale. It uses the date range
+(From/To and the 30D/90D/1Y/3Y presets) and the Daily/Weekly/Monthly/Yearly
+interval. A day's sleep is the sum of Oura's sleep periods for that day (main
+sleep plus naps); "rest" periods are excluded.
 
-- **Steps**: total steps per period, or the daily average (10K goal line).
-- **Sleep**: total sleep per period, or the nightly average (8h goal line).
-  A day's sleep is the sum of Oura's sleep periods for that day (main sleep
-  plus naps); "rest" periods are excluded.
-- **Steps + Sleep**: grouped bars on one chart, on a shared percentage scale.
-  A **Compare to** toggle picks the baseline:
-  - **Daily goal**: each value as a percentage of its daily goal (10K steps,
-    8h sleep), on a 0%–100% scale with a Goal line at 100%. The scale extends
-    in 25% steps only when a bar goes past the goal. Goals live in
-    `client/src/metrics.ts`.
-  - **Average** (default): how far each period is above (+) or below (−) that
-    metric's **mean for the selected date range**: `(value − mean) / mean`. The
-    mean is taken over the daily values in the range (days without data are
-    skipped), so changing the date range changes it.
+A **Compare to** toggle picks the baseline:
 
-  For weekly and longer intervals each bucket's per-day average is compared.
-  Using a shared percentage scale instead of two y-axes keeps the comparison
-  honest; the tooltip and table show the raw values.
-  - Checkboxes above the chart add or remove each series (at least one stays on);
-    the stats, heading and table follow the selection.
-  - Hovering a bar darkens it, fades the other series, and highlights its row
-    in the tooltip. Hovering the gap between bars shows the whole period.
+- **Average** (default): how far each period is above (+) or below (−) that
+  metric's **mean for the selected date range**: `(value − mean) / mean`. The
+  mean is taken over the daily values in the range (days without data are
+  skipped), so changing the date range changes it.
+- **Daily goal**: each value as a percentage of its daily goal, on a 0%–100%
+  scale with a Goal line at 100%; the scale extends in 25% steps only when a bar
+  goes past the goal.
+  - Each series chip shows an editable **Goal** box. Until you type one, the goal
+    follows the average for the selected period (marked "avg"). Steps take a
+    number ("10,000"); sleep takes "7h 30m", "7:30" or hours like "7.5".
+  - Enter or clicking away saves, Escape cancels, unreadable text is flagged and
+    not applied. **Use average** (or clearing the box) goes back to the average.
+  - Typed goals are remembered in this browser (localStorage).
+
+For weekly and longer intervals each bucket's per-day average is compared.
+Using a shared percentage scale instead of two y-axes keeps the comparison
+honest; the tooltip and table show the raw values.
+
+- Checkboxes in the series chips add or remove each series (at least one stays
+  on); the stats, heading and table follow the selection.
+- The swatch in each chip opens a picker with 10 colors (the 8-color validated
+  categorical palette plus lime and cyan, each with light- and dark-theme values
+  in `client/src/index.css`). The other series' color can't be picked, so the
+  two never share a color. Choices are remembered in this browser.
+- Hovering a bar darkens it, fades the other series, and highlights its row in
+  the tooltip. Hovering the gap between bars shows the whole period.
 
 ## Connecting your Oura data
 
