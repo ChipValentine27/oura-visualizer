@@ -25,16 +25,15 @@ export type Baseline = 'goal' | 'average'
 export interface OverlayPoint {
   start: string
   end: string
-  steps: Bucket
-  sleep: Bucket
-  /** Each bucket's per-day average as a percentage, per the chosen {@link Baseline}. */
-  stepsPct: number | null
-  sleepPct: number | null
+  /** Each metric's bucket for this period. */
+  buckets: Partial<Record<MetricId, Bucket>>
+  /** Each metric's per-day average as a percentage, per the chosen {@link Baseline}. */
+  pct: Partial<Record<MetricId, number | null>>
 }
 
 export type VisibleSeries = Record<MetricId, boolean>
 /** Per metric, the daily goal or the period mean that bars are measured against. */
-export type References = Record<MetricId, number>
+export type References = Partial<Record<MetricId, number>>
 
 function toPercent(b: Bucket, baseline: Baseline, reference: number) {
   return baseline === 'goal'
@@ -42,23 +41,24 @@ function toPercent(b: Bucket, baseline: Baseline, reference: number) {
     : percentFromMean(b.averagePerDay, b.daysWithData, reference)
 }
 
-/** Pairs the two series bucket-by-bucket; both come from the same range and interval. */
+/** Lines the metrics up period by period; they all come from the same range and interval. */
 export function toOverlayPoints(
-  steps: Bucket[],
-  sleep: Bucket[],
+  series: Partial<Record<MetricId, Bucket[]>>,
+  ids: MetricId[],
   baseline: Baseline,
   references: References,
 ): OverlayPoint[] {
-  return steps.map((s, i) => {
-    const z = sleep[i]
-    return {
-      start: s.start,
-      end: s.end,
-      steps: s,
-      sleep: z,
-      stepsPct: toPercent(s, baseline, references.steps),
-      sleepPct: z ? toPercent(z, baseline, references.sleep) : null,
+  const first = ids.map((id) => series[id]).find((b) => b !== undefined) ?? []
+  return first.map((anchor, i) => {
+    const buckets: OverlayPoint['buckets'] = {}
+    const pct: OverlayPoint['pct'] = {}
+    for (const id of ids) {
+      const b = series[id]?.[i]
+      if (!b) continue
+      buckets[id] = b
+      pct[id] = toPercent(b, baseline, references[id] ?? 0)
     }
+    return { start: anchor.start, end: anchor.end, buckets, pct }
   })
 }
 
@@ -66,8 +66,6 @@ export function toOverlayPoints(
 export const formatPercent = (pct: number, baseline: Baseline) =>
   baseline === 'goal' ? `${pct}%` : formatSignedPercent(pct)
 
-const SERIES: MetricId[] = ['steps', 'sleep']
-const PCT_KEY: Record<MetricId, 'stepsPct' | 'sleepPct'> = { steps: 'stepsPct', sleep: 'sleepPct' }
 const DIMMED_OPACITY = 0.3
 const NICE_STEPS = [5, 10, 20, 25, 50, 100, 200]
 
@@ -87,28 +85,28 @@ function goalTicks(max: number) {
 interface Props {
   points: OverlayPoint[]
   interval: Interval
-  visible: VisibleSeries
+  /** Metrics to draw, in order (left to right within each period). */
+  shown: MetricId[]
   baseline: Baseline
   colors: Record<MetricId, SeriesColor>
 }
 
 /**
- * Steps and sleep as grouped bars on one shared percentage scale, either as % of each
- * metric's daily goal or as ± % from each metric's mean for the selected range. Indexing both
- * to their own baseline avoids a dual-axis chart.
+ * Up to four metrics as grouped bars on one shared percentage scale, either as % of each
+ * metric's daily goal or as ± % from each metric's mean for the selected range. Indexing every
+ * metric to its own baseline avoids a multi-axis chart.
  *
- * Hovering a bar emphasizes its series: that bar darkens, the other series fades across the
+ * Hovering a bar emphasizes its metric: that bar darkens, the other metrics fade across the
  * chart, and the tooltip highlights the matching row.
  */
-export function OverlayChart({ points, interval, visible, baseline, colors }: Props) {
+export function OverlayChart({ points, interval, shown, baseline, colors }: Props) {
   const [hovered, setHovered] = useState<MetricId | null>(null)
-  const shown = SERIES.filter((id) => visible[id])
 
   const first = points[0]?.start
   const last = points.at(-1)?.start
   const spansYears = !!first && !!last && parseDay(first).getFullYear() !== parseDay(last).getFullYear()
 
-  const values = points.flatMap((p) => shown.map((id) => p[PCT_KEY[id]] ?? 0))
+  const values = points.flatMap((p) => shown.map((id) => p.pct[id] ?? 0))
   const { domain, ticks } =
     baseline === 'goal'
       ? goalTicks(Math.max(0, ...values))
@@ -170,17 +168,16 @@ export function OverlayChart({ points, interval, visible, baseline, colors }: Pr
           />
         )}
         {shown.map((id) => {
-          const m = METRICS[id]
           const dimmed = hovered !== null && hovered !== id
           return (
             <Bar
               key={id}
-              dataKey={PCT_KEY[id]}
-              name={m.label}
+              dataKey={(p: OverlayPoint) => p.pct[id] ?? null}
+              name={METRICS[id].label}
               fill={colors[id].fill}
               fillOpacity={dimmed ? DIMMED_OPACITY : 1}
               // The shared tooltip activates every bar in the hovered period; only darken the
-              // one under the mouse, and keep the other series faded.
+              // one under the mouse, and keep the other metrics faded.
               activeBar={
                 dimmed
                   ? { fill: colors[id].fill, fillOpacity: DIMMED_OPACITY }
@@ -220,23 +217,19 @@ function OverlayTooltip({
   const p = payload[0].payload as OverlayPoint
   const perDay = interval !== 'daily'
 
-  const rows: Record<MetricId, { label: string; bucket: Bucket; pct: number | null }> = {
-    steps: { label: perDay ? 'Steps / day' : 'Steps', bucket: p.steps, pct: p.stepsPct },
-    sleep: { label: perDay ? 'Sleep / night' : 'Sleep', bucket: p.sleep, pct: p.sleepPct },
-  }
-
   return (
     <div className="tooltip" role="status">
       <div className="tooltip-title">{bucketLabel(p.start, p.end, interval)}</div>
       {shown.map((id) => {
-        const r = rows[id]
+        const pct = p.pct[id] ?? null
+        const bucket = p.buckets[id]
         const state = hovered === null ? '' : hovered === id ? 'is-hovered' : 'is-dimmed'
         return (
           <div key={id} className={`tooltip-row tooltip-row-wide ${state}`}>
             <span className="swatch" style={{ background: colors[id].fill }} aria-hidden />
-            <span>{r.label}</span>
-            <strong>{r.pct === null ? '—' : METRICS[id].formatValue(r.bucket.averagePerDay)}</strong>
-            <span className="tooltip-pct">{r.pct === null ? '' : formatPercent(r.pct, baseline)}</span>
+            <span>{METRICS[id].rowLabel(perDay)}</span>
+            <strong>{pct === null || !bucket ? '—' : METRICS[id].formatValue(bucket.averagePerDay)}</strong>
+            <span className="tooltip-pct">{pct === null ? '' : formatPercent(pct, baseline)}</span>
           </div>
         )
       })}

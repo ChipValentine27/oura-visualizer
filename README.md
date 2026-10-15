@@ -17,15 +17,26 @@ npm --prefix client run dev                         # http://localhost:5173
 ```
 
 The database is created and migrated automatically on startup.
-Click **Load demo data** to explore the UI with three years of synthetic steps and sleep.
+Click **Load demo data** to explore the UI with three years of synthetic steps,
+sleep and scores. It overwrites those days in the database, including any real
+data you've synced for them.
 
 ## Health Visualizer
 
-The app has a single view, **Health Visualizer**: steps and sleep as grouped
-bars on one chart, on a shared percentage scale. It uses the date range
+The app has a single view, **Health Visualizer**: up to **4 metrics at once** as
+grouped bars on one chart, on a shared percentage scale. It uses the date range
 (From/To and the 30D/90D/1Y/3Y presets) and the Daily/Weekly/Monthly/Yearly
-interval. A day's sleep is the sum of Oura's sleep periods for that day (main
-sleep plus naps); "rest" periods are excluded.
+interval.
+
+| Metric | Source (Oura API v2) | Notes |
+|---|---|---|
+| Steps | `daily_activity.steps` | |
+| Sleep | `sleep` periods, `total_sleep_duration` | Sum of the day's periods (main sleep plus naps); "rest" periods excluded |
+| Sleep score | `daily_sleep.score` | 0–100 |
+| Readiness | `daily_readiness.score` | 0–100 |
+| Activity score | `daily_activity.score` | 0–100 |
+
+Days without a score are skipped, not counted as zero.
 
 A **Compare to** toggle picks the baseline:
 
@@ -36,24 +47,29 @@ A **Compare to** toggle picks the baseline:
 - **Daily goal**: each value as a percentage of its daily goal, on a 0%–100%
   scale with a Goal line at 100%; the scale extends in 25% steps only when a bar
   goes past the goal.
-  - Each series chip shows an editable **Goal** box. Until you type one, the goal
-    follows the average for the selected period (marked "avg"). Steps take a
-    number ("10,000"); sleep takes "7h 30m", "7:30" or hours like "7.5".
+  - Each shown metric's chip has an editable **Goal** box. Until you type one,
+    steps and sleep follow the average for the selected period (marked "avg"),
+    and the scores use 100, so a score of 82 reads as 82%. Steps take a number
+    ("10,000"); sleep takes "7h 30m", "7:30" or hours like "7.5"; scores take
+    1–100.
   - Enter or clicking away saves, Escape cancels, unreadable text is flagged and
-    not applied. **Use average** (or clearing the box) goes back to the average.
+    not applied. **Use average** / **Use 100** (or clearing the box) goes back
+    to the default.
   - Typed goals are remembered in this browser (localStorage).
 
 For weekly and longer intervals each bucket's per-day average is compared.
 Using a shared percentage scale instead of two y-axes keeps the comparison
 honest; the tooltip and table show the raw values.
 
-- Checkboxes in the series chips add or remove each series (at least one stays
-  on); the stats, heading and table follow the selection.
+- Checkboxes in the chips add or remove each metric: at least one and at most
+  four stay on (`MAX_VISIBLE_METRICS` in `client/src/metrics.ts`); the others
+  are disabled once four are on. The stats, heading and table follow the
+  selection, which is remembered in this browser.
 - The swatch in each chip opens a picker with 10 colors (the 8-color validated
   categorical palette plus lime and cyan, each with light- and dark-theme values
-  in `client/src/index.css`). The other series' color can't be picked, so the
-  two never share a color. Choices are remembered in this browser.
-- Hovering a bar darkens it, fades the other series, and highlights its row in
+  in `client/src/index.css`). Colors used by other metrics can't be picked, so
+  no two metrics share a color. Choices are remembered in this browser.
+- Hovering a bar darkens it, fades the other metrics, and highlights its row in
   the tooltip. Hovering the gap between bars shows the whole period.
 
 ## Connecting your Oura data
@@ -98,13 +114,13 @@ registered).
 
 | Method | Route | Purpose |
 |---|---|---|
-| GET  | `/api/metrics/{steps\|sleep}?start=&end=&interval=daily\|weekly\|monthly\|yearly` | Bucketed totals + per-day averages, plus the range's daily mean (sleep in seconds) |
+| GET  | `/api/metrics/{steps\|sleep\|sleepScore\|readinessScore\|activityScore}?start=&end=&interval=daily\|weekly\|monthly\|yearly` | Bucketed totals + per-day averages, plus the range's daily mean (sleep in seconds, scores 0–100) |
 | GET  | `/api/metrics/range` | First/last day stored, activity days and sleep nights |
 | GET  | `/api/oura/status` | Client configured? Connected? Token expiry |
 | GET  | `/api/oura/connect` | Starts OAuth (browser navigation, redirects to Oura) |
 | GET  | `/api/oura/callback` | OAuth redirect target; returns to `/?oura=connected\|error` |
 | POST | `/api/oura/disconnect` | Revoke and forget the Oura tokens |
-| POST | `/api/sync/oura?start=&end=` | Pull daily activity and sleep from Oura (409 if not connected) |
+| POST | `/api/sync/oura?start=&end=` | Pull daily activity, sleep, sleep score and readiness from Oura (409 if not connected) |
 | POST | `/api/sync/demo?start=&end=` | Seed synthetic data |
 
 Weeks are ISO weeks (Monday start). Buckets that straddle the chosen range are

@@ -261,6 +261,10 @@ input:focus-visible {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+.stat-note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
 
 .card {
   background: var(--surface-1);
@@ -405,10 +409,19 @@ th {
 .series-toggles {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin: 0 0 8px;
   padding: 0;
   border: none;
+}
+.series-limit {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.series-limit.is-at-max {
+  color: var(--text-secondary);
+  font-weight: 600;
 }
 .series-toggle {
   display: inline-flex;

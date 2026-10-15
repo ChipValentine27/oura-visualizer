@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { api, type DataRange, type Interval, type MetricId, type OuraStatus, type SeriesResponse } from './api'
 import { isColorId, seriesColor, type ColorId } from './colors'
 import { ColorPicker } from './components/ColorPicker'
@@ -8,11 +8,11 @@ import {
   OverlayChart,
   toOverlayPoints,
   type Baseline,
-  type OverlayPoint,
+  type References,
   type VisibleSeries,
 } from './components/OverlayChart'
 import { addDays, bucketLabel, formatNumber, today } from './dates'
-import { METRICS } from './metrics'
+import { MAX_VISIBLE_METRICS, METRIC_IDS, METRICS } from './metrics'
 
 const INTERVALS: { value: Interval; label: string }[] = [
   { value: 'daily', label: 'Daily' },
@@ -30,74 +30,74 @@ const PRESETS: { label: string; days: number }[] = [
   { label: '3Y', days: 365 * 3 },
 ]
 
-const SERIES: MetricId[] = ['steps', 'sleep']
-
 const BASELINES: { value: Baseline; label: string }[] = [
   { value: 'goal', label: 'Daily goal' },
   { value: 'average', label: 'Average' },
 ]
 
-/** A goal the user typed, or null to follow the average for the selected period. */
-type CustomGoals = Record<MetricId, number | null>
+const byMetric = <T,>(value: (id: MetricId) => T) =>
+  Object.fromEntries(METRIC_IDS.map((id) => [id, value(id)])) as Record<MetricId, T>
 
-const GOALS_STORAGE_KEY = 'ouraviz.customGoals'
-
-function loadCustomGoals(): CustomGoals {
+/** Reads a JSON object from localStorage; any failure (private window, bad data) gives {}. */
+function loadStored(key: string): Record<string, unknown> {
   try {
-    const stored = JSON.parse(localStorage.getItem(GOALS_STORAGE_KEY) ?? '{}')
-    const valid = (v: unknown) => (typeof v === 'number' && v > 0 ? v : null)
-    return { steps: valid(stored.steps), sleep: valid(stored.sleep) }
+    const parsed = JSON.parse(localStorage.getItem(key) ?? '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
   } catch {
-    return { steps: null, sleep: null }
+    return {}
   }
 }
 
-function saveCustomGoals(goals: CustomGoals) {
+function store(key: string, value: unknown) {
   try {
-    localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(goals))
-  } catch {
-    // Storage unavailable (private window etc.); goals still work for this visit.
-  }
-}
-
-type SeriesColors = Record<MetricId, ColorId>
-
-const COLORS_STORAGE_KEY = 'ouraviz.seriesColors'
-
-function loadSeriesColors(): SeriesColors {
-  const defaults: SeriesColors = { steps: METRICS.steps.defaultColor, sleep: METRICS.sleep.defaultColor }
-  try {
-    const stored = JSON.parse(localStorage.getItem(COLORS_STORAGE_KEY) ?? '{}')
-    const colors = {
-      steps: isColorId(stored.steps) ? stored.steps : defaults.steps,
-      sleep: isColorId(stored.sleep) ? stored.sleep : defaults.sleep,
-    }
-    // Two series in one color would be unreadable; fall back rather than trust bad storage.
-    return colors.steps === colors.sleep ? defaults : colors
-  } catch {
-    return defaults
-  }
-}
-
-function saveSeriesColors(colors: SeriesColors) {
-  try {
-    localStorage.setItem(COLORS_STORAGE_KEY, JSON.stringify(colors))
+    localStorage.setItem(key, JSON.stringify(value))
   } catch {
     // Storage unavailable; the choice still applies for this visit.
   }
 }
 
-interface Series {
-  steps: SeriesResponse
-  sleep: SeriesResponse
+/** A goal the user typed, or null to use the metric's default (average or fixed). */
+type CustomGoals = Record<MetricId, number | null>
+const GOALS_KEY = 'ouraviz.customGoals'
+
+function loadCustomGoals(): CustomGoals {
+  const stored = loadStored(GOALS_KEY)
+  return byMetric((id) => {
+    const v = stored[id]
+    return typeof v === 'number' && v > 0 ? v : null
+  })
 }
+
+type SeriesColors = Record<MetricId, ColorId>
+const COLORS_KEY = 'ouraviz.seriesColors'
+
+function loadSeriesColors(): SeriesColors {
+  const defaults = byMetric((id) => METRICS[id].defaultColor)
+  const stored = loadStored(COLORS_KEY)
+  const colors = byMetric((id) => (isColorId(stored[id]) ? (stored[id] as ColorId) : defaults[id]))
+  // Two metrics in one color would be unreadable; fall back rather than trust bad storage.
+  return new Set(Object.values(colors)).size === METRIC_IDS.length ? colors : defaults
+}
+
+const VISIBLE_KEY = 'ouraviz.visibleMetrics'
+
+function loadVisible(): VisibleSeries {
+  const stored = loadStored(VISIBLE_KEY)
+  const visible = byMetric((id) => (typeof stored[id] === 'boolean' ? (stored[id] as boolean) : false))
+  const count = METRIC_IDS.filter((id) => visible[id]).length
+  return count >= 1 && count <= MAX_VISIBLE_METRICS
+    ? visible
+    : byMetric((id) => id === 'steps' || id === 'sleep')
+}
+
+type Series = Record<MetricId, SeriesResponse>
 
 export default function App() {
   const [range, setRange] = useState<DataRange | null>(null)
   const [start, setStart] = useState(() => addDays(today(), -89))
   const [end, setEnd] = useState(today)
   const [interval, setInterval] = useState<Interval>('daily')
-  const [visibleSeries, setVisibleSeries] = useState<VisibleSeries>({ steps: true, sleep: true })
+  const [visible, setVisible] = useState<VisibleSeries>(loadVisible)
   const [baseline, setBaseline] = useState<Baseline>('average')
   const [customGoals, setCustomGoals] = useState<CustomGoals>(loadCustomGoals)
   const [seriesColors, setSeriesColors] = useState<SeriesColors>(loadSeriesColors)
@@ -142,16 +142,14 @@ export default function App() {
       .catch((e: Error) => setError(e.message))
   }, [loadMeta])
 
+  // Every metric is small, so fetch them all together; toggling metrics is then instant.
   useEffect(() => {
     if (start > end) return
     const ctrl = new AbortController()
     setLoading(true)
-    Promise.all([
-      api.series('steps', start, end, interval, ctrl.signal),
-      api.series('sleep', start, end, interval, ctrl.signal),
-    ])
-      .then(([steps, sleep]) => {
-        setData({ steps, sleep })
+    Promise.all(METRIC_IDS.map((id) => api.series(id, start, end, interval, ctrl.signal)))
+      .then((responses) => {
+        setData(byMetric((id) => responses[METRIC_IDS.indexOf(id)]))
         setError(null)
       })
       .catch((e: Error) => {
@@ -165,10 +163,18 @@ export default function App() {
     setStart(addDays(end, -(days - 1)))
   }
 
+  const toggleMetric = (id: MetricId) => {
+    setVisible((v) => {
+      const next = { ...v, [id]: !v[id] }
+      store(VISIBLE_KEY, next)
+      return next
+    })
+  }
+
   const setSeriesColor = (id: MetricId, color: ColorId) => {
     setSeriesColors((c) => {
       const next = { ...c, [id]: color }
-      saveSeriesColors(next)
+      store(COLORS_KEY, next)
       return next
     })
   }
@@ -176,7 +182,7 @@ export default function App() {
   const setCustomGoal = (id: MetricId, value: number | null) => {
     setCustomGoals((g) => {
       const next = { ...g, [id]: value }
-      saveCustomGoals(next)
+      store(GOALS_KEY, next)
       return next
     })
   }
@@ -227,7 +233,7 @@ export default function App() {
               <button
                 className="btn btn-primary"
                 disabled={!!busy || rangeInvalid}
-                title={`Sync steps and sleep for ${start} to ${end} from Oura`}
+                title={`Sync activity, sleep and scores for ${start} to ${end} from Oura`}
                 onClick={() => runAction('oura', () => api.syncOura(start, end))}
               >
                 {busy === 'oura' ? 'Syncing…' : 'Sync from Oura'}
@@ -255,7 +261,7 @@ export default function App() {
         </div>
       )}
 
-      {/* A single tab for now; more views (heart rate, HRV, ...) can join it here. */}
+      {/* A single tab for now; more views can join it here. */}
       <nav className="tabs" role="tablist" aria-label="View">
         <button role="tab" aria-selected className="selected">
           Health Visualizer
@@ -301,8 +307,8 @@ export default function App() {
         <HealthView
           data={data}
           interval={data.steps.interval}
-          visible={visibleSeries}
-          onToggleSeries={(id) => setVisibleSeries((v) => ({ ...v, [id]: !v[id] }))}
+          visible={visible}
+          onToggleMetric={toggleMetric}
           baseline={baseline}
           onBaseline={setBaseline}
           customGoals={customGoals}
@@ -322,7 +328,7 @@ interface HealthViewProps {
   data: Series
   interval: Interval
   visible: VisibleSeries
-  onToggleSeries: (id: MetricId) => void
+  onToggleMetric: (id: MetricId) => void
   baseline: Baseline
   onBaseline: (b: Baseline) => void
   customGoals: CustomGoals
@@ -334,11 +340,15 @@ interface HealthViewProps {
   onToggleTable: () => void
 }
 
+/** "A", "A and B", "A, B and C". */
+const listOf = (items: string[]) =>
+  items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+
 function HealthView({
   data,
   interval,
   visible,
-  onToggleSeries,
+  onToggleMetric,
   baseline,
   onBaseline,
   customGoals,
@@ -349,29 +359,28 @@ function HealthView({
   showTable,
   onToggleTable,
 }: HealthViewProps) {
-  const means: Record<MetricId, number> = { steps: data.steps.averagePerDay, sleep: data.sleep.averagePerDay }
-  // Until the user types a goal, it follows the average for the selected period.
-  const goals: Record<MetricId, number> = {
-    steps: customGoals.steps ?? means.steps,
-    sleep: customGoals.sleep ?? means.sleep,
-  }
-  const refSteps = baseline === 'goal' ? goals.steps : means.steps
-  const refSleep = baseline === 'goal' ? goals.sleep : means.sleep
-
-  const points = useMemo(
-    () => toOverlayPoints(data.steps.buckets, data.sleep.buckets, baseline, { steps: refSteps, sleep: refSleep }),
-    [data, baseline, refSteps, refSleep],
+  const shown = METRIC_IDS.filter((id) => visible[id])
+  const means = byMetric((id) => data[id].averagePerDay)
+  // Until the user types a goal, a metric uses its default: the period average, or a fixed
+  // value (100 for the 0–100 scores).
+  const goals = byMetric((id) => {
+    const fallback = METRICS[id].defaultGoal
+    return customGoals[id] ?? (fallback === 'average' ? means[id] : fallback)
+  })
+  const references: References = baseline === 'goal' ? goals : means
+  // At most a few thousand buckets, so recomputing on each render is cheap.
+  const points = toOverlayPoints(
+    byMetric((id) => data[id].buckets),
+    shown,
+    baseline,
+    references,
   )
-  const shown = SERIES.filter((id) => visible[id])
   const noData = shown.every((id) => data[id].daysWithData === 0)
   const perDay = interval !== 'daily'
+  const atMax = shown.length >= MAX_VISIBLE_METRICS
+  const colors = byMetric((id) => seriesColor(seriesColors[id]))
   const describe = (values: Record<MetricId, number>) =>
-    shown
-      .map((id) => `${METRICS[id].formatValue(values[id])} ${id === 'steps' ? 'steps/day' : 'sleep/night'}`)
-      .join(', ')
-  const pctOf = (p: OverlayPoint, id: MetricId) => (id === 'steps' ? p.stepsPct : p.sleepPct)
-  const colors = { steps: seriesColor(seriesColors.steps), sleep: seriesColor(seriesColors.sleep) }
-  const other = (id: MetricId): MetricId => (id === 'steps' ? 'sleep' : 'steps')
+    shown.map((id) => `${METRICS[id].formatValue(values[id])} ${METRICS[id].describeUnit}`).join(', ')
 
   return (
     <>
@@ -379,22 +388,19 @@ function HealthView({
         {shown.map((id) => (
           <Stat
             key={id}
-            label={id === 'steps' ? 'Steps, daily average' : 'Sleep, nightly average'}
+            label={METRICS[id].statLabel}
             value={METRICS[id].formatValue(data[id].averagePerDay)}
+            note={`${formatNumber(data[id].daysWithData)} ${METRICS[id].dayNoun} with data`}
             swatch={colors[id].fill}
           />
         ))}
-        <Stat
-          label={capitalize(shown.map((id) => METRICS[id].dayNoun).join(' / ')) + ' with data'}
-          value={shown.map((id) => formatNumber(data[id].daysWithData)).join(' / ')}
-        />
       </section>
 
       <section className="card" aria-busy={loading}>
         <div className="card-header">
           <div>
             <h2>
-              {shown.map((id) => METRICS[id].label).join(' and ')} vs. {baseline === 'goal' ? 'daily goal' : 'average'}, by{' '}
+              {listOf(shown.map((id) => METRICS[id].label))} vs. {baseline === 'goal' ? 'daily goal' : 'average'}, by{' '}
               {UNIT[interval]}
             </h2>
             <p className="card-sub">
@@ -402,7 +408,7 @@ function HealthView({
                 ? `As a percentage of your daily goal (${describe(goals)})`
                 : `Above (+) or below (−) the average (mean) for the selected period (${describe(means)})`}
               {perDay ? ', comparing per-day averages' : ''}
-              {shown.length > 1 ? ', so both share one scale.' : '.'}
+              {shown.length > 1 ? ', so all share one scale.' : '.'}
             </p>
           </div>
           <div className="card-tools">
@@ -426,19 +432,30 @@ function HealthView({
         </div>
 
         <fieldset className="series-toggles">
-          <legend className="visually-hidden">Series shown on the chart</legend>
-          {SERIES.map((id) => {
+          <legend className="visually-hidden">Metrics shown on the chart, up to {MAX_VISIBLE_METRICS}</legend>
+          {METRIC_IDS.map((id) => {
             const m = METRICS[id]
-            // Keep at least one series on the chart.
             const isLastOn = visible[id] && shown.length === 1
+            const blockedByMax = !visible[id] && atMax
+            const takenBy = Object.fromEntries(
+              METRIC_IDS.filter((other) => other !== id).map((other) => [seriesColors[other], METRICS[other].label]),
+            )
             return (
               <div key={id} className={`series-toggle ${visible[id] ? '' : 'is-off'}`}>
-                <label title={isLastOn ? 'At least one series must be shown' : undefined}>
+                <label
+                  title={
+                    isLastOn
+                      ? 'At least one metric must be shown'
+                      : blockedByMax
+                        ? `Up to ${MAX_VISIBLE_METRICS} metrics at a time; turn one off first`
+                        : undefined
+                  }
+                >
                   <input
                     type="checkbox"
                     checked={visible[id]}
-                    disabled={isLastOn}
-                    onChange={() => onToggleSeries(id)}
+                    disabled={isLastOn || blockedByMax}
+                    onChange={() => onToggleMetric(id)}
                     style={{ accentColor: colors[id].fill }}
                   />
                   {m.label}
@@ -446,28 +463,29 @@ function HealthView({
                 <ColorPicker
                   seriesLabel={m.label}
                   value={seriesColors[id]}
-                  otherColor={seriesColors[other(id)]}
-                  otherLabel={METRICS[other(id)].label}
+                  takenBy={takenBy}
                   onChange={(color) => onSeriesColor(id, color)}
                 />
-                {baseline === 'goal' && (
+                {baseline === 'goal' && visible[id] && (
                   <GoalInput
                     metric={m}
                     goal={goals[id]}
                     isCustom={customGoals[id] !== null}
-                    disabled={!visible[id]}
                     onChange={(value) => onCustomGoal(id, value)}
                   />
                 )}
               </div>
             )
           })}
+          <span className={`series-limit ${atMax ? 'is-at-max' : ''}`}>
+            {shown.length} of {MAX_VISIBLE_METRICS} max
+          </span>
         </fieldset>
 
         {noData ? (
           <div className="empty">No data in this range.</div>
         ) : (
-          <OverlayChart points={points} interval={interval} visible={visible} baseline={baseline} colors={colors} />
+          <OverlayChart points={points} interval={interval} shown={shown} baseline={baseline} colors={colors} />
         )}
 
         {showTable && (
@@ -478,7 +496,7 @@ function HealthView({
                   <th>Period</th>
                   {shown.map((id) => (
                     <Fragment key={id}>
-                      <th className="num">{id === 'steps' ? (perDay ? 'Steps / day' : 'Steps') : perDay ? 'Sleep / night' : 'Sleep'}</th>
+                      <th className="num">{METRICS[id].rowLabel(perDay)}</th>
                       <th className="num">{baseline === 'goal' ? '% of goal' : 'vs. average'}</th>
                     </Fragment>
                   ))}
@@ -489,10 +507,13 @@ function HealthView({
                   <tr key={p.start}>
                     <td>{bucketLabel(p.start, p.end, interval)}</td>
                     {shown.map((id) => {
-                      const pct = pctOf(p, id)
+                      const pct = p.pct[id] ?? null
+                      const bucket = p.buckets[id]
                       return (
                         <Fragment key={id}>
-                          <td className="num">{pct === null ? '—' : METRICS[id].formatValue(p[id].averagePerDay)}</td>
+                          <td className="num">
+                            {pct === null || !bucket ? '—' : METRICS[id].formatValue(bucket.averagePerDay)}
+                          </td>
                           <td className="num">{pct === null ? '—' : formatPercent(pct, baseline)}</td>
                         </Fragment>
                       )
@@ -508,7 +529,7 @@ function HealthView({
   )
 }
 
-function Stat({ label, value, swatch }: { label: string; value: string; swatch?: string }) {
+function Stat({ label, value, note, swatch }: { label: string; value: string; note?: string; swatch?: string }) {
   return (
     <div className="stat">
       <div className="stat-label">
@@ -516,8 +537,7 @@ function Stat({ label, value, swatch }: { label: string; value: string; swatch?:
         {label}
       </div>
       <div className="stat-value">{value}</div>
+      {note && <div className="stat-note">{note}</div>}
     </div>
   )
 }
-
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)

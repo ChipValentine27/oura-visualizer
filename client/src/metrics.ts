@@ -4,12 +4,23 @@ import { formatDuration, formatNumber } from './dates'
 
 export interface MetricConfig {
   id: MetricId
-  /** Series name, e.g. in legends and tooltips. */
+  /** Series name, e.g. in chips, legends and headings. */
   label: string
+  /** Summary tile label, e.g. "Steps, daily average". */
+  statLabel: string
+  /** Tooltip/table label for one bar: per-day wording when a bar covers several days. */
+  rowLabel: (perDay: boolean) => string
+  /** Unit wording after a value in sentences: "8,773 steps/day", "82 sleep score". */
+  describeUnit: string
   /** Noun for one day's record ("days with data" / "nights with data"). */
   dayNoun: string
-  /** Formats an API value (steps, or seconds of sleep). */
+  /** Formats an API value (steps, seconds of sleep, or a 0–100 score). */
   formatValue: (value: number) => string
+  /**
+   * Daily goal until the user types one: 'average' follows the mean for the selected period;
+   * a number is a fixed goal (100 for scores, so a score of 82 reads as 82%).
+   */
+  defaultGoal: 'average' | number
   /** Text for the goal box; must round-trip through {@link MetricConfig.parseGoal}. */
   formatGoal: (value: number) => string
   /** Reads what the user typed into the goal box, or null if it isn't a usable goal. */
@@ -43,12 +54,43 @@ function parseSleep(text: string): number | null {
   return Math.round(hours * 3600)
 }
 
+/** Scores: a whole number from 1 to 100. */
+function parseScore(text: string): number | null {
+  const t = text.trim()
+  if (!/^\d{1,3}$/.test(t)) return null
+  const n = Number(t)
+  return n >= 1 && n <= 100 ? n : null
+}
+
+const formatScore = (v: number) => String(Math.round(v))
+
+function scoreMetric(id: MetricId, label: string, defaultColor: ColorId): MetricConfig {
+  return {
+    id,
+    label,
+    statLabel: `${label}, average`,
+    rowLabel: (perDay) => (perDay ? `${label} (avg)` : label),
+    describeUnit: label.toLowerCase(),
+    dayNoun: 'days',
+    formatValue: formatScore,
+    defaultGoal: 100,
+    formatGoal: formatScore,
+    parseGoal: parseScore,
+    goalHint: `${label} goal, 1–100`,
+    defaultColor,
+  }
+}
+
 export const METRICS: Record<MetricId, MetricConfig> = {
   steps: {
     id: 'steps',
     label: 'Steps',
+    statLabel: 'Steps, daily average',
+    rowLabel: (perDay) => (perDay ? 'Steps / day' : 'Steps'),
+    describeUnit: 'steps/day',
     dayNoun: 'days',
     formatValue: formatNumber,
+    defaultGoal: 'average',
     formatGoal: (v) => formatNumber(Math.round(v)),
     parseGoal: parseSteps,
     goalHint: 'Steps per day, e.g. 10,000',
@@ -57,14 +99,28 @@ export const METRICS: Record<MetricId, MetricConfig> = {
   sleep: {
     id: 'sleep',
     label: 'Sleep',
+    statLabel: 'Sleep, nightly average',
+    rowLabel: (perDay) => (perDay ? 'Sleep / night' : 'Sleep'),
+    describeUnit: 'sleep/night',
     dayNoun: 'nights',
     formatValue: formatDuration,
+    defaultGoal: 'average',
     formatGoal: formatDuration,
     parseGoal: parseSleep,
     goalHint: 'Sleep per night, e.g. 7h 30m, 7:30 or 7.5',
     defaultColor: 'orange',
   },
+  // Default colors continue the validated palette order after blue and orange.
+  sleepScore: scoreMetric('sleepScore', 'Sleep score', 'aqua'),
+  readinessScore: scoreMetric('readinessScore', 'Readiness', 'yellow'),
+  activityScore: scoreMetric('activityScore', 'Activity score', 'magenta'),
 }
+
+/** Every metric, in display order (chips, bars within a group, table columns). */
+export const METRIC_IDS: MetricId[] = ['steps', 'sleep', 'sleepScore', 'readinessScore', 'activityScore']
+
+/** The most metrics the chart shows at once; beyond this, grouped bars get too thin to read. */
+export const MAX_VISIBLE_METRICS = 4
 
 /** Share of the daily goal as a whole percentage, or null when there is no data or no goal. */
 export const percentOfGoal = (averagePerDay: number, daysWithData: number, goal: number) =>
