@@ -11,6 +11,7 @@ import {
   type References,
   type VisibleSeries,
 } from './components/OverlayChart'
+import { ThemeToggle } from './components/ThemeToggle'
 import { addDays, bucketLabel, formatNumber, today } from './dates'
 import { MAX_VISIBLE_METRICS, METRIC_IDS, METRICS } from './metrics'
 
@@ -218,6 +219,7 @@ export default function App() {
           </p>
         </div>
         <div className="actions">
+          <ThemeToggle />
           <button
             className="btn"
             disabled={!!busy}
