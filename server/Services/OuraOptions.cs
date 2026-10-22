@@ -13,8 +13,11 @@ public class OuraOptions
     /// </summary>
     public string? RedirectUri { get; set; }
 
-    /// <summary>Space-separated Oura scopes. "daily" covers daily activity, sleep and readiness.</summary>
-    public string Scopes { get; set; } = "daily";
+    /// <summary>
+    /// Space-separated Oura scopes. "daily" covers daily activity, sleep and readiness;
+    /// "ring_configuration" covers ring data such as battery level.
+    /// </summary>
+    public string Scopes { get; set; } = "daily ring_configuration";
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(ClientSecret);
 }

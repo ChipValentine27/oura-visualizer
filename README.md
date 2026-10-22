@@ -129,7 +129,7 @@ How tokens are handled:
 - **Disconnect Oura** revokes the grant at Oura (best effort) and deletes the
   stored tokens.
 
-Other settings in the `Oura` section: `Scopes` (default `daily`; reconnect after
+Other settings in the `Oura` section: `Scopes` (default `daily ring_configuration`, the second for battery; reconnect after
 changing it) and `RedirectUri` (when empty, derived from the request as
 `{scheme}://{host}/api/oura/callback`; set it for production to match what you
 registered).
