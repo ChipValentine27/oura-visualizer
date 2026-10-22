@@ -27,6 +27,47 @@ public class SyncController(OuraSyncService sync) : ControllerBase
         }
     }
 
+    /// <summary>
+    /// POST /api/sync/battery?from=2025-01-01T00:00:00-05:00&amp;to=2025-02-01T00:00:00-05:00 pulls ring
+    /// battery samples from the Oura API. Separate from /oura so the two sync independently;
+    /// takes instants because the client's day boundaries depend on its time zone.
+    /// </summary>
+    [HttpPost("battery")]
+    public async Task<IActionResult> SyncBattery([FromQuery] DateTimeOffset from, [FromQuery] DateTimeOffset to, CancellationToken ct)
+    {
+        if (to <= from) return BadRequest("to must be after from.");
+
+        try
+        {
+            return Ok(await sync.SyncBatteryFromOuraAsync(from, to, ct));
+        }
+        catch (OuraAccessDeniedException)
+        {
+            // The token was just refreshed, so this is a permission problem, not a dead connection.
+            return Problem(
+                "Oura refused access to ring battery data. If “Sync from Oura” still works, your Oura app "
+                + "isn't allowed to read battery data: check its access at cloud.ouraring.com/oauth/applications, "
+                + "then Disconnect and Connect Oura again.",
+                statusCode: 403, title: "Battery data not permitted");
+        }
+        catch (OuraNotConnectedException ex)
+        {
+            return Problem(ex.Message, statusCode: 409, title: "Oura not connected");
+        }
+        catch (HttpRequestException ex)
+        {
+            return Problem($"Oura API request failed: {ex.Message}", statusCode: 502);
+        }
+    }
+
+    /// <summary>POST /api/sync/battery/demo?from=...&amp;to=... fills [from, to) with a synthetic battery trace.</summary>
+    [HttpPost("battery/demo")]
+    public async Task<IActionResult> SeedBatteryDemo([FromQuery] DateTimeOffset from, [FromQuery] DateTimeOffset to, CancellationToken ct)
+    {
+        if (to <= from) return BadRequest("to must be after from.");
+        return Ok(await sync.SeedBatteryDemoAsync(from, to, ct));
+    }
+
     /// <summary>POST /api/sync/demo?start=...&amp;end=... fills the database with synthetic data.</summary>
     [HttpPost("demo")]
     public async Task<IActionResult> SeedDemo([FromQuery] DateOnly start, [FromQuery] DateOnly end, CancellationToken ct)

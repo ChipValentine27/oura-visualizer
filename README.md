@@ -72,6 +72,28 @@ honest; the tooltip and table show the raw values.
 - Hovering a bar darkens it, fades the other metrics, and highlights its row in
   the tooltip. Hovering the gap between bars shows the whole period.
 
+## Battery Life
+
+Below the Health Visualizer, the **Battery Life** section has its own header,
+buttons and chart. It uses the same From/To dates but syncs separately:
+**Sync battery** pulls only ring battery data, and **Sync from Oura** never
+touches it.
+
+- Source: Oura API v2 `ring_battery_level`, a time series of samples
+  (`timestamp`, `level` 0–100%, `charging`, `in_charger`), requested in 7-day
+  windows and stored in the `RingBatteryReadings` table.
+- The chart shows battery level over time on a fixed 0–100% scale, with charging
+  stretches drawn in green. Long ranges are averaged into at most 600 points
+  (the tooltip shows each point's low and high); gaps of more than a few hours
+  break the line rather than being bridged.
+- Stats: latest reading, average and lowest level, and how many times the ring
+  went on charge in the range.
+- **Load demo battery** seeds a synthetic year of battery data, replacing what
+  is stored for that year.
+- If Oura still answers battery requests with 401 after a token refresh, the
+  sync reports that the Oura app isn't permitted to read battery data, and the
+  connection is kept.
+
 ## Connecting your Oura data
 
 The app signs in to Oura with OAuth2 and manages tokens itself, so you never
@@ -90,6 +112,8 @@ paste an access token.
 3. Restart the API, click **Connect Oura**, and approve access on Oura's page.
 4. Pick a date range and click **Sync from Oura**. Syncs upsert by day, so
    re-syncing a range is safe.
+5. Ring battery syncs on its own: click **Sync battery** in the Battery Life
+   section. It replaces the stored samples for the selected days.
 
 How tokens are handled:
 
@@ -122,6 +146,12 @@ registered).
 | POST | `/api/oura/disconnect` | Revoke and forget the Oura tokens |
 | POST | `/api/sync/oura?start=&end=` | Pull daily activity, sleep, sleep score and readiness from Oura (409 if not connected) |
 | POST | `/api/sync/demo?start=&end=` | Seed synthetic data |
+| GET  | `/api/battery?from=&to=` | Ring battery levels in [from, to), averaged into at most 600 time buckets, plus latest/average/lowest level and charge count |
+| POST | `/api/sync/battery?from=&to=` | Pull ring battery samples from Oura (separate from `/api/sync/oura`); 403 if Oura refuses battery access |
+| POST | `/api/sync/battery/demo?from=&to=` | Seed a synthetic battery trace (one sample every 30 minutes) |
+
+Battery routes take ISO 8601 instants with an offset (`2025-03-01T00:00:00-05:00`)
+because battery is a time series, not daily data. The client sends local midnights.
 
 Weeks are ISO weeks (Monday start). Buckets that straddle the chosen range are
 clipped to it, so compare partial periods with **Daily avg** rather than **Total**.

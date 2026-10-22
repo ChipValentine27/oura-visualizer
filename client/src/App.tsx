@@ -1,6 +1,15 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
-import { api, type DataRange, type Interval, type MetricId, type OuraStatus, type SeriesResponse } from './api'
+import {
+  api,
+  type BatteryResponse,
+  type DataRange,
+  type Interval,
+  type MetricId,
+  type OuraStatus,
+  type SeriesResponse,
+} from './api'
 import { isColorId, seriesColor, type ColorId } from './colors'
+import { BatteryChart } from './components/BatteryChart'
 import { ColorPicker } from './components/ColorPicker'
 import { GoalInput } from './components/GoalInput'
 import {
@@ -11,7 +20,7 @@ import {
   type References,
   type VisibleSeries,
 } from './components/OverlayChart'
-import { addDays, bucketLabel, formatNumber, today } from './dates'
+import { addDays, bucketLabel, dayBounds, formatNumber, today } from './dates'
 import { MAX_VISIBLE_METRICS, METRIC_IDS, METRICS } from './metrics'
 
 const INTERVALS: { value: Interval; label: string }[] = [
@@ -109,6 +118,9 @@ export default function App() {
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [battery, setBattery] = useState<BatteryResponse | null>(null)
+  const [batteryLoading, setBatteryLoading] = useState(false)
+  const [batteryReloadKey, setBatteryReloadKey] = useState(0)
 
   const loadMeta = useCallback(async () => {
     const [r, s] = await Promise.all([api.range(), api.ouraStatus()])
@@ -159,6 +171,25 @@ export default function App() {
     return () => ctrl.abort()
   }, [start, end, interval, reloadKey])
 
+  // Battery is fetched on its own, so syncing it never refetches the health metrics and vice versa.
+  useEffect(() => {
+    if (start > end) return
+    const ctrl = new AbortController()
+    const { from, to } = dayBounds(start, end)
+    setBatteryLoading(true)
+    api
+      .battery(from, to, ctrl.signal)
+      .then((b) => {
+        setBattery(b)
+        setError(null)
+      })
+      .catch((e: Error) => {
+        if (e.name !== 'AbortError') setError(e.message)
+      })
+      .finally(() => setBatteryLoading(false))
+    return () => ctrl.abort()
+  }, [start, end, batteryReloadKey])
+
   const applyPreset = (days: number) => {
     setStart(addDays(end, -(days - 1)))
   }
@@ -187,13 +218,18 @@ export default function App() {
     })
   }
 
-  const runAction = async (label: string, action: () => Promise<unknown>) => {
+  /** Runs a header action, then reloads the data it touched (the health metrics by default). */
+  const runAction = async (
+    label: string,
+    action: () => Promise<unknown>,
+    reload: () => void = () => setReloadKey((k) => k + 1),
+  ) => {
     setBusy(label)
     setError(null)
     setNotice(null)
     try {
       await action()
-      setReloadKey((k) => k + 1)
+      reload()
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -203,7 +239,31 @@ export default function App() {
     }
   }
 
-  const hasAnyData = (range?.activityDays ?? 0) + (range?.sleepDays ?? 0) > 0
+  const reloadBattery = () => setBatteryReloadKey((k) => k + 1)
+
+  const syncBattery = () =>
+    runAction(
+      'battery',
+      async () => {
+        const { from, to } = dayBounds(start, end)
+        const { readings } = await api.syncBattery(from, to)
+        setNotice({
+          kind: 'success',
+          text:
+            readings === 0
+              ? `Oura returned no battery readings for ${start} to ${end}.`
+              : `Synced ${formatNumber(readings)} battery readings for ${start} to ${end}.`,
+        })
+      },
+      reloadBattery,
+    )
+
+  const seedBatteryDemo = () => {
+    const { from, to } = dayBounds(addDays(today(), -364), today())
+    return runAction('batteryDemo', () => api.seedBatteryDemo(from, to), reloadBattery)
+  }
+
+  const hasAnyData =(range?.activityDays ?? 0) + (range?.sleepDays ?? 0) > 0
   const rangeInvalid = start > end
 
   return (
@@ -320,6 +380,32 @@ export default function App() {
           onToggleTable={() => setShowTable((s) => !s)}
         />
       )}
+
+      <section className="section" aria-labelledby="battery-heading">
+        <header className="section-header">
+          <div>
+            <h2 id="battery-heading" className="section-title">
+              Battery Life
+            </h2>
+            <p className="subtle">Your ring's battery level for the selected dates, synced separately from health data.</p>
+          </div>
+          <div className="actions">
+            <button className="btn" disabled={!!busy} onClick={seedBatteryDemo}>
+              {busy === 'batteryDemo' ? 'Loading…' : 'Load demo battery'}
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={!!busy || rangeInvalid || !oura?.connected}
+              title={oura?.connected ? `Sync ring battery levels for ${start} to ${end} from Oura` : 'Connect Oura first'}
+              onClick={syncBattery}
+            >
+              {busy === 'battery' ? 'Syncing…' : 'Sync battery'}
+            </button>
+          </div>
+        </header>
+
+        {battery && <BatteryView data={battery} loading={batteryLoading} />}
+      </section>
     </main>
   )
 }
@@ -523,6 +609,71 @@ function HealthView({
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+    </>
+  )
+}
+
+const BATTERY_COLORS = { level: seriesColor('blue'), charging: seriesColor('green') }
+
+const batteryTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+function BatteryView({ data, loading }: { data: BatteryResponse; loading: boolean }) {
+  const { latest } = data
+  const percent = (v: number | null) => (v === null ? '—' : `${Math.round(v)}%`)
+
+  return (
+    <>
+      <section className="stats stats-even" aria-label="Battery summary">
+        <Stat
+          label="Latest"
+          value={percent(latest?.level ?? null)}
+          note={
+            latest
+              ? `${latest.charging ? 'Charging · ' : ''}${batteryTime.format(new Date(latest.timestamp))}`
+              : 'No readings'
+          }
+        />
+        <Stat
+          label="Average level"
+          value={percent(data.averageLevel)}
+          note={`${formatNumber(data.readings)} readings`}
+        />
+        <Stat label="Lowest level" value={percent(data.minLevel)} />
+        <Stat label="Charges" value={formatNumber(data.chargeCount)} note="Times the ring went on charge" />
+      </section>
+
+      <section className="card" aria-busy={loading}>
+        <div className="card-header">
+          <div>
+            <h2>Battery level over time</h2>
+            <p className="card-sub">
+              {data.bucketMs > 15 * 60_000
+                ? 'Each point averages the readings in its stretch of time; hover for the low and high.'
+                : 'Each point is one reading.'}{' '}
+              Gaps mean no readings.
+            </p>
+          </div>
+          <div className="legend" aria-hidden>
+            <span>
+              <span className="swatch" style={{ background: BATTERY_COLORS.level.fill }} /> Battery level
+            </span>
+            <span>
+              <span className="swatch" style={{ background: BATTERY_COLORS.charging.fill }} /> Charging
+            </span>
+          </div>
+        </div>
+        {data.points.length === 0 ? (
+          <div className="empty">No battery data in this range. Click “Sync battery” to pull it from Oura.</div>
+        ) : (
+          <BatteryChart
+            points={data.points}
+            from={data.from}
+            to={data.to}
+            bucketMs={data.bucketMs}
+            colors={BATTERY_COLORS}
+          />
         )}
       </section>
     </>

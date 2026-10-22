@@ -36,6 +36,34 @@ export interface SyncResult {
   scoreDays: number
 }
 
+/** One time bucket of ring battery samples. Timestamps are Unix milliseconds; levels 0–100%. */
+export interface BatteryPoint {
+  timestamp: number
+  /** Mean level of the bucket's samples. */
+  level: number
+  min: number
+  max: number
+  /** The ring was charging (or sat in its charger) at some point in the bucket. */
+  charging: boolean
+}
+
+export interface BatteryResponse {
+  from: number
+  to: number
+  bucketMs: number
+  /** Buckets with samples only; a missing stretch means no data, not 0%. */
+  points: BatteryPoint[]
+  readings: number
+  averageLevel: number | null
+  minLevel: number | null
+  latest: { timestamp: number; level: number; charging: boolean } | null
+  chargeCount: number
+}
+
+export interface BatterySyncResult {
+  readings: number
+}
+
 export interface OuraStatus {
   configured: boolean
   connected: boolean
@@ -75,4 +103,11 @@ export const api = {
     request<SyncResult>(`/api/sync/oura?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
   seedDemo: (start: string, end: string) =>
     request<SyncResult>(`/api/sync/demo?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
+  /** `from`/`to` are ISO instants (`dayBounds` in dates.ts); battery is a time series, not daily. */
+  battery: (from: string, to: string, signal?: AbortSignal) =>
+    request<BatteryResponse>(`/api/battery?${new URLSearchParams({ from, to })}`, { signal }),
+  syncBattery: (from: string, to: string) =>
+    request<BatterySyncResult>(`/api/sync/battery?${new URLSearchParams({ from, to })}`, { method: 'POST' }),
+  seedBatteryDemo: (from: string, to: string) =>
+    request<BatterySyncResult>(`/api/sync/battery/demo?${new URLSearchParams({ from, to })}`, { method: 'POST' }),
 }

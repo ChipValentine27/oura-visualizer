@@ -128,6 +128,28 @@ namespace OuraViz.Api.Data.Migrations
 
                     b.ToTable("OuraTokens");
                 });
+
+            modelBuilder.Entity("OuraViz.Api.Models.RingBatteryReading", b =>
+                {
+                    b.Property<long>("TimestampMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool?>("Charging")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool?>("InCharger")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Level")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TimestampMs");
+
+                    b.ToTable("RingBatteryReadings");
+                });
 #pragma warning restore 612, 618
         }
     }
