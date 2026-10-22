@@ -28,8 +28,8 @@ grouped bars on one chart, on a shared percentage scale. It uses the date range
 (From/To and the 30D/90D/1Y/3Y presets) and the Daily/Weekly/Monthly/Yearly
 interval.
 
-Metrics are grouped into four categories in the **Choose metrics** picker
-(`CATEGORIES` and the definitions in `client/src/metrics.ts`):
+Metrics are grouped into four categories in the metric picker (`CATEGORIES`
+and the definitions in `client/src/metrics.ts`):
 
 | Category | Metrics | Source (Oura API v2) |
 |---|---|---|
@@ -82,16 +82,27 @@ A **Compare to** toggle picks the baseline:
     not applied. **Use average** / **Use 100** (or clearing the box) goes back
     to the default.
   - Typed goals are remembered in this browser (localStorage).
+- **Unit**: the actual values, on an axis in their own unit (hours for
+  durations, clock times, steps, bpm...), starting at zero. The picker's tabs
+  switch from categories to units (`UNITS` in `client/src/metrics.ts`; units
+  with a single metric, such as steps, get no tab), and the
+  chart shows one unit at a time: that of the first selected metric. Metrics of
+  the same unit can be added alongside; picking one of another unit switches the
+  chart to that unit and replaces the metrics shown. Metrics of other units
+  already selected when you switch to Unit stay selected but sit out the chart
+  (marked "Different unit").
 
 For weekly and longer intervals each bucket's per-day average is compared.
-Using a shared percentage scale instead of two y-axes keeps the comparison
-honest; the tooltip and table show the raw values.
+Using a shared percentage scale, or one unit at a time, instead of two y-axes
+keeps the comparison honest; the tooltip and records show the raw values.
 
-- **Choose metrics** opens the picker: one tab per category, each showing how
-  many of its metrics are on the chart. At least one and at most four stay on
-  (`MAX_VISIBLE_METRICS` in `client/src/metrics.ts`); the others are disabled
-  once four are on. Only shown metrics are fetched. The chips, stats, heading
-  and table follow the selection, which is remembered in this browser.
+- **Show metrics** / **Hide metrics** opens the picker: one tab per category
+  (per unit in Unit mode), each showing how many of its metrics are on the
+  chart. At least one and at most four stay on (`MAX_VISIBLE_METRICS` in
+  `client/src/metrics.ts`); the others are disabled once four are on. Only shown
+  metrics are fetched. The chips, stats, heading and records follow the
+  selection, which is remembered in this browser.
+- **Show records** / **Hide records** lists the values behind each bar.
 - The swatch in each chip opens a picker with 10 colors (the 8-color validated
   categorical palette plus lime and cyan, each with light- and dark-theme values
   in `client/src/index.css`). There are more metrics than colors, so colors only

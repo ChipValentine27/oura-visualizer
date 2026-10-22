@@ -3,9 +3,9 @@ import { api, type DataRange, type Interval, type MetricId, type OuraStatus, typ
 import { COLORS, isColorId, seriesColor, type ColorId } from './colors'
 import { ColorPicker } from './components/ColorPicker'
 import { GoalInput } from './components/GoalInput'
-import { MetricPicker } from './components/MetricPicker'
+import { MetricPicker, type PickerGroup } from './components/MetricPicker'
 import {
-  formatPercent,
+  formatBar,
   OverlayChart,
   toOverlayPoints,
   type Baseline,
@@ -13,7 +13,7 @@ import {
   type VisibleSeries,
 } from './components/OverlayChart'
 import { addDays, bucketLabel, formatNumber, today } from './dates'
-import { canCompareToGoal, MAX_VISIBLE_METRICS, METRIC_IDS, METRICS } from './metrics'
+import { CATEGORIES, MAX_VISIBLE_METRICS, METRIC_IDS, METRICS, UNITS, unitLabel, type UnitId } from './metrics'
 
 const INTERVALS: { value: Interval; label: string }[] = [
   { value: 'daily', label: 'Daily' },
@@ -34,6 +34,7 @@ const PRESETS: { label: string; days: number }[] = [
 const BASELINES: { value: Baseline; label: string }[] = [
   { value: 'goal', label: 'Daily goal' },
   { value: 'average', label: 'Average' },
+  { value: 'unit', label: 'Unit' },
 ]
 
 const byMetric = <T,>(value: (id: MetricId) => T) =>
@@ -221,6 +222,13 @@ export default function App() {
     if (distinct[id] !== seriesColors[id]) setSeriesColor(id, distinct[id])
   }
 
+  /** Shows just this metric, as when Unit mode switches the chart to another unit. */
+  const showOnly = (id: MetricId) => {
+    const next = byMetric((m) => m === id)
+    setVisible(next)
+    store(VISIBLE_KEY, next)
+  }
+
   const setCustomGoal = (id: MetricId, value: number | null) => {
     setCustomGoals((g) => {
       const next = { ...g, [id]: value }
@@ -370,6 +378,7 @@ export default function App() {
           interval={series.interval}
           visible={visible}
           onToggleMetric={toggleMetric}
+          onShowOnly={showOnly}
           baseline={baseline}
           onBaseline={setBaseline}
           customGoals={customGoals}
@@ -390,6 +399,7 @@ interface HealthViewProps {
   interval: Interval
   visible: VisibleSeries
   onToggleMetric: (id: MetricId) => void
+  onShowOnly: (id: MetricId) => void
   baseline: Baseline
   onBaseline: (b: Baseline) => void
   customGoals: CustomGoals
@@ -407,11 +417,30 @@ const listOf = (items: string[]) =>
 
 const NOT_VS_GOAL = 'Clock times and temperature deviations can’t be compared to a daily goal. Switch “Compare to” to Average to chart them.'
 
+/** Why a selected metric of another unit sits out the chart in Unit mode. */
+const otherUnit = (unit: UnitId) =>
+  `In Unit mode the chart shows one unit at a time (${unitLabel(unit)} now). Pick a metric of another unit to switch to it.`
+
+const CATEGORY_GROUPS: PickerGroup[] = CATEGORIES.map((c) => ({
+  id: c.id,
+  label: c.label,
+  ids: METRIC_IDS.filter((id) => METRICS[id].category === c.id),
+}))
+
+// Unit mode is for comparing metrics that share a unit, so a unit with a single metric
+// (steps, breaths per minute, the breathing disturbance index) gets no tab.
+const UNIT_GROUPS: PickerGroup[] = UNITS.map((u) => ({
+  id: u.id,
+  label: u.label,
+  ids: METRIC_IDS.filter((id) => METRICS[id].unit === u.id),
+})).filter((g) => g.ids.length > 1)
+
 function HealthView({
   data,
   interval,
   visible,
   onToggleMetric,
+  onShowOnly,
   baseline,
   onBaseline,
   customGoals,
@@ -426,8 +455,18 @@ function HealthView({
   const selected = METRIC_IDS.filter((id) => visible[id])
   // Selected metrics whose data has arrived (a newly picked one joins once it loads).
   const loaded = selected.filter((id) => data[id] !== undefined)
-  // Against a goal, clock times and temperatures stay selected but sit out the chart.
-  const drawn = loaded.filter((id) => baseline === 'average' || canCompareToGoal(id))
+  // In Unit mode the chart has one axis, so it takes the unit of the first selected metric.
+  const activeUnit = baseline === 'unit' && selected.length > 0 ? METRICS[selected[0]].unit : null
+  // Why a metric can't be on the chart right now: against a goal, clock times and temperatures
+  // can't be measured; in Unit mode, other units don't fit the axis. Selected ones stay
+  // selected but sit out the chart until the mode changes.
+  const sitOutReason = (id: MetricId) =>
+    baseline === 'goal' && METRICS[id].goal === null
+      ? NOT_VS_GOAL
+      : activeUnit !== null && METRICS[id].unit !== activeUnit
+        ? otherUnit(activeUnit)
+        : undefined
+  const drawn = loaded.filter((id) => sitOutReason(id) === undefined)
   const means = byMetric((id) => data[id]?.averagePerDay ?? 0)
   // Until the user types a goal, a metric uses its default: the period average, or a fixed
   // value (100 for the 0–100 scores and percentages).
@@ -446,6 +485,21 @@ function HealthView({
   const noData = drawn.every((id) => data[id]!.daysWithData === 0)
   const perDay = interval !== 'daily'
   const atMax = selected.length >= MAX_VISIBLE_METRICS
+  // In Unit mode, picking a metric of another unit switches the chart to that unit: it replaces
+  // the metrics shown, since at least one must stay on and the two units can't share the axis.
+  const switchesUnit = (id: MetricId) => activeUnit !== null && !visible[id] && METRICS[id].unit !== activeUnit
+  const reasonFor = (id: MetricId) =>
+    visible[id]
+      ? selected.length === 1
+        ? 'At least one metric must be shown'
+        : undefined
+      : baseline === 'goal' && METRICS[id].goal === null
+        ? NOT_VS_GOAL
+        : switchesUnit(id)
+          ? undefined
+          : atMax
+            ? `Up to ${MAX_VISIBLE_METRICS} metrics at a time; turn one off first`
+            : undefined
   const colors = byMetric((id) => seriesColor(seriesColors[id]))
   const describe = (values: Record<MetricId, number>) =>
     drawn.map((id) => `${METRICS[id].formatValue(values[id])} ${METRICS[id].describeUnit}`).join(', ')
@@ -476,15 +530,19 @@ function HealthView({
             <h2>
               {drawn.length === 0
                 ? 'Nothing to compare to a daily goal'
-                : `${listOf(drawn.map((id) => METRICS[id].label))} vs. ${baseline === 'goal' ? 'daily goal' : 'average'}, by ${UNIT[interval]}`}
+                : baseline === 'unit'
+                  ? `${listOf(drawn.map((id) => METRICS[id].label))}, by ${UNIT[interval]}`
+                  : `${listOf(drawn.map((id) => METRICS[id].label))} vs. ${baseline === 'goal' ? 'daily goal' : 'average'}, by ${UNIT[interval]}`}
             </h2>
             {drawn.length > 0 && (
               <p className="card-sub">
                 {baseline === 'goal'
                   ? `As a percentage of your daily goal (${describe(goals)})`
-                  : `Above (+) or below (−) the average (mean) for the selected period (${describe(means)})`}
-                {perDay ? ', comparing per-day averages' : ''}
-                {drawn.length > 1 ? ', so all share one scale.' : '.'}
+                  : baseline === 'average'
+                    ? `Above (+) or below (−) the average (mean) for the selected period (${describe(means)})`
+                    : `Actual values on a shared ${unitLabel(METRICS[drawn[0]].unit).toLowerCase()} axis`}
+                {perDay ? (baseline === 'unit' ? ', as per-day averages' : ', comparing per-day averages') : ''}
+                {drawn.length > 1 && baseline !== 'unit' ? ', so all share one scale.' : '.'}
                 {scaleNote}
               </p>
             )}
@@ -503,8 +561,17 @@ function HealthView({
                 </button>
               ))}
             </div>
-            <button className="link" onClick={onToggleTable}>
-              {showTable ? 'Hide table' : 'Show table'}
+            <button
+              type="button"
+              className="link"
+              aria-expanded={pickerOpen}
+              aria-controls="metric-picker"
+              onClick={() => setPickerOpen((o) => !o)}
+            >
+              {pickerOpen ? 'Hide metrics' : 'Show metrics'}
+            </button>
+            <button type="button" className="link" aria-expanded={showTable} onClick={onToggleTable}>
+              {showTable ? 'Hide records' : 'Show records'}
             </button>
           </div>
         </div>
@@ -514,7 +581,7 @@ function HealthView({
           {selected.map((id) => {
             const m = METRICS[id]
             const isLastOn = selected.length === 1
-            const sitsOut = baseline === 'goal' && m.goal === null
+            const sitsOut = sitOutReason(id)
             const takenBy = Object.fromEntries(
               selected.filter((other) => other !== id).map((other) => [seriesColors[other], METRICS[other].label]),
             )
@@ -536,6 +603,11 @@ function HealthView({
                   takenBy={takenBy}
                   onChange={(color) => onSeriesColor(id, color)}
                 />
+                {sitsOut && baseline === 'unit' && (
+                  <span className="goal-field goal-source" title={sitsOut}>
+                    Different unit
+                  </span>
+                )}
                 {baseline === 'goal' &&
                   (m.goal ? (
                     <GoalInput
@@ -556,25 +628,28 @@ function HealthView({
           <span className={`series-limit ${atMax ? 'is-at-max' : ''}`}>
             {selected.length} of {MAX_VISIBLE_METRICS} max
           </span>
-          <button
-            type="button"
-            className="btn btn-small picker-toggle"
-            aria-expanded={pickerOpen}
-            aria-controls="metric-picker"
-            onClick={() => setPickerOpen((o) => !o)}
-          >
-            {pickerOpen ? 'Done' : 'Choose metrics'}
-          </button>
         </fieldset>
 
         {pickerOpen && (
           <MetricPicker
             id="metric-picker"
+            groups={baseline === 'unit' ? UNIT_GROUPS : CATEGORY_GROUPS}
             visible={visible}
-            baseline={baseline}
             colors={colors}
-            notVsGoal={NOT_VS_GOAL}
-            onToggle={onToggleMetric}
+            reasonFor={reasonFor}
+            tagFor={(id) =>
+              baseline !== 'unit' && METRICS[id].goal === null
+                ? { text: 'avg only', title: 'Not compared to a daily goal' }
+                : undefined
+            }
+            noteFor={(group) =>
+              baseline === 'goal' && group.ids.some((id) => METRICS[id].goal === null)
+                ? NOT_VS_GOAL
+                : activeUnit !== null && group.id !== activeUnit
+                  ? `Picking one of these switches the chart to ${group.label.toLowerCase()} and replaces the metrics shown.`
+                  : undefined
+            }
+            onToggle={(id) => (switchesUnit(id) ? onShowOnly(id) : onToggleMetric(id))}
           />
         )}
 
@@ -597,7 +672,9 @@ function HealthView({
                   {drawn.map((id) => (
                     <Fragment key={id}>
                       <th className="num">{METRICS[id].rowLabel(perDay)}</th>
-                      <th className="num">{baseline === 'goal' ? '% of goal' : 'vs. average'}</th>
+                      {baseline !== 'unit' && (
+                        <th className="num">{baseline === 'goal' ? '% of goal' : 'vs. average'}</th>
+                      )}
                     </Fragment>
                   ))}
                 </tr>
@@ -614,7 +691,9 @@ function HealthView({
                           <td className="num">
                             {pct === null || !bucket ? '—' : METRICS[id].formatValue(bucket.averagePerDay)}
                           </td>
-                          <td className="num">{pct === null ? '—' : formatPercent(pct, baseline)}</td>
+                          {baseline !== 'unit' && (
+                            <td className="num">{pct === null ? '—' : formatBar(id, pct, baseline)}</td>
+                          )}
                         </Fragment>
                       )
                     })}

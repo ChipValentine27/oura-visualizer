@@ -12,6 +12,37 @@ export const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: 'heart', label: 'Heart & breathing' },
 ]
 
+/** What a metric's values measure; in Unit mode the picker groups by this and the chart shares its axis. */
+export type UnitId =
+  | 'duration'
+  | 'clock'
+  | 'steps'
+  | 'meters'
+  | 'score'
+  | 'percent'
+  | 'bpm'
+  | 'ms'
+  | 'breaths'
+  | 'celsius'
+  | 'index'
+
+/** Groups for the metric picker in Unit mode, in display order. */
+export const UNITS: { id: UnitId; label: string }[] = [
+  { id: 'duration', label: 'Duration' },
+  { id: 'clock', label: 'Time of day' },
+  { id: 'steps', label: 'Steps' },
+  { id: 'meters', label: 'Distance' },
+  { id: 'score', label: 'Score' },
+  { id: 'percent', label: 'Percent' },
+  { id: 'bpm', label: 'Heart rate (bpm)' },
+  { id: 'ms', label: 'HRV (ms)' },
+  { id: 'breaths', label: 'Breaths per minute' },
+  { id: 'celsius', label: 'Temperature (°C)' },
+  { id: 'index', label: 'Index' },
+]
+
+export const unitLabel = (id: UnitId) => UNITS.find((u) => u.id === id)!.label
+
 /** How a metric's daily goal is read, written and defaulted. */
 export interface GoalConfig {
   /**
@@ -32,6 +63,7 @@ export interface GoalConfig {
 export interface MetricConfig {
   id: MetricId
   category: CategoryId
+  unit: UnitId
   /** Series name, e.g. in chips, legends and headings. */
   label: string
   /** Summary tile label, e.g. "Steps, daily average". */
@@ -145,7 +177,7 @@ const unitGoal = (unit: string, min: number, max: number, example: string, decim
 const ONE_HOUR = { value: 3600, label: '1 hour' }
 const ONE_DEGREE = { value: 1, label: '1 °C' }
 
-type Kind = 'duration' | 'clock' | 'score' | 'percent' | 'bpm' | 'ms' | 'breaths' | 'index' | 'meters' | 'celsius'
+type Kind = Exclude<UnitId, 'steps'>
 
 interface Options {
   /** "night" for overnight readings (sleep stages, nightly heart rate...); "day" otherwise. */
@@ -160,6 +192,7 @@ function metric(id: MetricId, label: string, category: CategoryId, kind: Kind, o
   const base = {
     id,
     category,
+    unit: kind,
     label,
     statLabel: `${label}, ${per === 'night' ? 'nightly' : 'daily'} average`,
     rowLabel: (perDay: boolean) => (perDay ? `${label} (avg)` : label),
@@ -214,6 +247,7 @@ const DEFINITIONS: MetricConfig[] = [
   {
     id: 'sleep',
     category: 'sleep',
+    unit: 'duration',
     label: 'Sleep',
     statLabel: 'Sleep, nightly average',
     rowLabel: (perDay) => (perDay ? 'Sleep / night' : 'Sleep'),
@@ -251,6 +285,7 @@ const DEFINITIONS: MetricConfig[] = [
   {
     id: 'steps',
     category: 'activity',
+    unit: 'steps',
     label: 'Steps',
     statLabel: 'Steps, daily average',
     rowLabel: (perDay) => (perDay ? 'Steps / day' : 'Steps'),
