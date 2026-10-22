@@ -374,7 +374,7 @@ th {
   gap: 4px;
   border-bottom: 1px solid var(--border);
 }
-.tabs button {
+.tabs [role='tab'] {
   border: none;
   background: none;
   padding: 8px 14px;
@@ -383,10 +383,10 @@ th {
   color: var(--text-secondary);
   font-weight: 500;
 }
-.tabs button:hover {
+.tabs [role='tab']:hover {
   color: var(--text-primary);
 }
-.tabs button.selected {
+.tabs [role='tab'].selected {
   color: var(--text-primary);
   border-bottom-color: var(--text-primary);
 }
@@ -613,24 +613,24 @@ th {
   }
 }
 
-/* A top-level section with its own heading, e.g. Battery Life below the health view. */
-.section {
+/* The open tab's content; spaced like the page's own sections. */
+.view-panel {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  margin-top: 16px;
 }
-.section-header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  justify-content: space-between;
-  align-items: flex-end;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
+
+/* Buttons for the open tab only (e.g. Sync battery), at the right end of the tab bar. */
+.tabs {
+  align-items: center;
 }
-.section-title {
-  font-size: 1.35rem;
+.tab-actions {
+  margin-left: auto;
+  padding-bottom: 6px;
+}
+.btn-small {
+  padding: 5px 12px;
+  font-size: 0.9rem;
 }
 
 .legend {

@@ -36,26 +36,30 @@ export interface SyncResult {
   scoreDays: number
 }
 
-/** One time bucket of ring battery samples. Timestamps are Unix milliseconds; levels 0–100%. */
-export interface BatteryPoint {
-  timestamp: number
-  /** Mean level of the bucket's samples. */
-  level: number
-  min: number
-  max: number
-  /** The ring was charging (or sat in its charger) at some point in the bucket. */
-  charging: boolean
+/** One calendar bucket of ring battery samples (local days). Levels are 0–100%. */
+export interface BatteryBucket {
+  start: string
+  end: string
+  readings: number
+  daysWithData: number
+  /** Mean, low and high of the bucket's samples; null when it has none. */
+  averageLevel: number | null
+  minLevel: number | null
+  maxLevel: number | null
+  /** Charges that started in the bucket (flag blips with no gain don't count). */
+  charges: number
 }
 
 export interface BatteryResponse {
-  from: number
-  to: number
-  bucketMs: number
-  /** Buckets with samples only; a missing stretch means no data, not 0%. */
-  points: BatteryPoint[]
+  start: string
+  end: string
+  interval: Interval
+  buckets: BatteryBucket[]
   readings: number
+  daysWithData: number
   averageLevel: number | null
   minLevel: number | null
+  /** Timestamp is Unix milliseconds. */
   latest: { timestamp: number; level: number; charging: boolean } | null
   chargeCount: number
 }
@@ -103,9 +107,13 @@ export const api = {
     request<SyncResult>(`/api/sync/oura?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
   seedDemo: (start: string, end: string) =>
     request<SyncResult>(`/api/sync/demo?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
-  /** `from`/`to` are ISO instants (`dayBounds` in dates.ts); battery is a time series, not daily. */
-  battery: (from: string, to: string, signal?: AbortSignal) =>
-    request<BatteryResponse>(`/api/battery?${new URLSearchParams({ from, to })}`, { signal }),
+  /** Bucketed like {@link api.series}; days are local to the browser's time zone. */
+  battery: (start: string, end: string, interval: Interval, signal?: AbortSignal) =>
+    request<BatteryResponse>(
+      `/api/battery?${new URLSearchParams({ start, end, interval, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })}`,
+      { signal },
+    ),
+  /** `from`/`to` are ISO instants (`dayBounds` in dates.ts): Oura serves battery as a time series. */
   syncBattery: (from: string, to: string) =>
     request<BatterySyncResult>(`/api/sync/battery?${new URLSearchParams({ from, to })}`, { method: 'POST' }),
   seedBatteryDemo: (from: string, to: string) =>
