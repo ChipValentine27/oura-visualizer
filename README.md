@@ -86,16 +86,22 @@ Oura** never touches it.
 - Source: Oura API v2 `ring_battery_level`, a time series of samples
   (`timestamp`, `level` 0–100%, `charging`, `in_charger`), requested in 7-day
   windows and stored in the `RingBatteryReadings` table.
-- Only the battery % Oura reports is shown, with no derived metrics. The chart is a
-  line of the reported readings over time on a fixed 0–100% scale; the interval
-  sets where the time axis is labelled (each day, week, month or year). A gap of
-  more than 3 hours between readings breaks the line. Ranges with more than
-  3,000 readings keep each short stretch's lowest and highest reading (every
-  plotted point is still a real reading), and the chart says so.
+- Only the battery % Oura reports is shown, plus its average, lowest and highest;
+  nothing else is derived. Everything is on a fixed 0–100% scale, and a gap of
+  more than 3 hours between readings breaks the line.
+- **Up to 31 days:** a line of the reported readings over time; the interval sets
+  where the time axis is labelled. Levels are whole percents, so a slow drain
+  arrives as stairs; to keep the line smooth, each short run of equal readings
+  is drawn at its middle reading (runs over 2 hours, real plateaus, keep their
+  first and last). Every plotted point is a real reading.
+- **Longer ranges:** a reading-by-reading line would be a solid smear, so each
+  period's average is drawn as a line over a band from its lowest to highest
+  reading. If the interval would give more than 120 periods (a year by day, say)
+  the chart steps up to the next coarser interval and says so.
 - Stats: the latest reading, and the average, lowest and highest reported level
   in the range (over every reading, never the thinned set).
 - **Show table** lists the average, lowest and highest level and the reading
-  count for each period of the chosen interval. Readings are grouped by your
+  count for each period charted. Readings are grouped by your
   local days (the browser's time zone), in the same calendar buckets as the
   health metrics (ISO weeks, clipped at the range edges).
 - **Load demo battery** seeds a synthetic year of battery data up to now,
@@ -156,7 +162,7 @@ registered).
 | POST | `/api/oura/disconnect` | Revoke and forget the Oura tokens |
 | POST | `/api/sync/oura?start=&end=` | Pull daily activity, sleep, sleep score and readiness from Oura (409 if not connected) |
 | POST | `/api/sync/demo?start=&end=` | Seed synthetic data |
-| GET  | `/api/battery?start=&end=&interval=daily\|weekly\|monthly\|yearly&timeZone=` | Reported battery readings for the range (local days in `timeZone`, an IANA id), plus average/lowest/highest level for the range and per bucket |
+| GET  | `/api/battery?start=&end=&interval=daily\|weekly\|monthly\|yearly&timeZone=` | Reported battery readings for the range (local days in `timeZone`, an IANA id), plus average/lowest/highest level for the range and per bucket; `includeReadings=false` returns only the stats and buckets |
 | POST | `/api/sync/battery?from=&to=` | Pull ring battery samples from Oura (separate from `/api/sync/oura`); 403 if Oura refuses battery access |
 | POST | `/api/sync/battery/demo?from=&to=` | Seed a synthetic battery trace (one sample every 30 minutes) |
 

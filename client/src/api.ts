@@ -118,9 +118,15 @@ export const api = {
   seedDemo: (start: string, end: string) =>
     request<SyncResult>(`/api/sync/demo?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
   /** Bucketed like {@link api.series}; days are local to the browser's time zone. */
-  battery: (start: string, end: string, interval: Interval, signal?: AbortSignal) =>
+  battery: (start: string, end: string, interval: Interval, includeReadings: boolean, signal?: AbortSignal) =>
     request<BatteryResponse>(
-      `/api/battery?${new URLSearchParams({ start, end, interval, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })}`,
+      `/api/battery?${new URLSearchParams({
+        start,
+        end,
+        interval,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        includeReadings: String(includeReadings),
+      })}`,
       { signal },
     ),
   /** `from`/`to` are ISO instants (`dayBounds` in dates.ts): Oura serves battery as a time series. */

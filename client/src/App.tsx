@@ -9,7 +9,7 @@ import {
   type SeriesResponse,
 } from './api'
 import { isColorId, seriesColor, type ColorId } from './colors'
-import { BatteryChart } from './components/BatteryChart'
+import { BatteryChart, chartInterval, MAX_READING_DAYS, showsReadings } from './components/BatteryChart'
 import { ColorPicker } from './components/ColorPicker'
 import { GoalInput } from './components/GoalInput'
 import {
@@ -197,7 +197,7 @@ export default function App() {
     const ctrl = new AbortController()
     setBatteryLoading(true)
     api
-      .battery(start, end, interval, ctrl.signal)
+      .battery(start, end, chartInterval(start, end, interval), showsReadings(start, end), ctrl.signal)
       .then((b) => {
         setBattery(b)
         setError(null)
@@ -433,6 +433,7 @@ export default function App() {
         {view === 'battery' && battery && (
           <BatteryView
             data={battery}
+            chosenInterval={interval}
             loading={batteryLoading}
             showTable={showBatteryTable}
             onToggleTable={() => setShowBatteryTable((s) => !s)}
@@ -656,14 +657,18 @@ const percent = (v: number | null) => (v === null ? '—' : `${Math.round(v)}%`)
 
 interface BatteryViewProps {
   data: BatteryResponse
+  /** The interval picked in the filters; data.interval may be coarser (see chartInterval). */
+  chosenInterval: Interval
   loading: boolean
   showTable: boolean
   onToggleTable: () => void
 }
 
-function BatteryView({ data, loading, showTable, onToggleTable }: BatteryViewProps) {
+function BatteryView({ data, chosenInterval, loading, showTable, onToggleTable }: BatteryViewProps) {
   const { latest, interval } = data
   const readings = `${formatNumber(data.readingCount)} readings`
+  const everyReading = showsReadings(data.start, data.end)
+  const coarsened = !everyReading && interval !== chosenInterval
 
   return (
     <>
@@ -681,9 +686,14 @@ function BatteryView({ data, loading, showTable, onToggleTable }: BatteryViewPro
       <section className="card" aria-busy={loading}>
         <div className="card-header">
           <div>
-            <h2>Battery level</h2>
+            <h2>{everyReading ? 'Battery level' : `Battery level by ${UNIT[interval]}`}</h2>
             <p className="card-sub">
-              Each reading Oura reported, labelled by {UNIT[interval]}. Gaps mean no readings.
+              {everyReading
+                ? `Each reading Oura reported, labelled by ${UNIT[interval]}.`
+                : `Each ${UNIT[interval]}'s average reading, with a band from its lowest to highest. Ranges up to ${MAX_READING_DAYS} days show every reading.`}{' '}
+              Gaps mean no readings.
+              {coarsened &&
+                ` This range has too many ${UNIT[chosenInterval]}s to tell apart, so it's shown by ${UNIT[interval]}; pick a shorter range to see each ${UNIT[chosenInterval]}.`}
               {data.thinned &&
                 ` To fit, the chart shows the lowest and highest of each short stretch (${formatNumber(data.readings.length)} of ${readings}).`}
             </p>
@@ -700,6 +710,7 @@ function BatteryView({ data, loading, showTable, onToggleTable }: BatteryViewPro
         ) : (
           <BatteryChart
             readings={data.readings}
+            buckets={data.buckets}
             start={data.start}
             end={data.end}
             from={data.from}

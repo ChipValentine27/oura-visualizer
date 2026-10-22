@@ -20,7 +20,8 @@ public class BatteryController(OuraDbContext db) : ControllerBase
     /// The battery levels Oura reported between local midnight on <paramref name="start"/> and the
     /// end of <paramref name="end"/>, plus the average, lowest and highest of them for the range and
     /// for each calendar bucket (the same buckets as /api/metrics). <paramref name="timeZone"/> is an
-    /// IANA or Windows zone id; days are the viewer's local days.
+    /// IANA or Windows zone id; days are the viewer's local days. With
+    /// <paramref name="includeReadings"/> false only the stats and buckets are returned.
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<BatteryResponse>> Get(
@@ -28,6 +29,7 @@ public class BatteryController(OuraDbContext db) : ControllerBase
         [FromQuery] DateOnly end,
         [FromQuery] Interval interval = Interval.Daily,
         [FromQuery] string timeZone = "UTC",
+        [FromQuery] bool includeReadings = true,
         CancellationToken ct = default)
     {
         if (end < start) return BadRequest("end must be on or after start.");
@@ -73,12 +75,13 @@ public class BatteryController(OuraDbContext db) : ControllerBase
                 MaxLevel: readings == 0 ? null : days.Max(s => s.Max)));
         }
 
-        var chartReadings = Thin(samples, fromMs, toMs);
+        // Long ranges are charted from the buckets, so the individual readings needn't be sent.
+        var chartReadings = includeReadings ? Thin(samples, fromMs, toMs) : [];
         return new BatteryResponse(
             start, end, interval, fromMs, toMs,
             Readings: chartReadings,
             ReadingCount: samples.Count,
-            Thinned: chartReadings.Count < samples.Count,
+            Thinned: includeReadings && chartReadings.Count < samples.Count,
             Buckets: buckets,
             AverageLevel: samples.Count == 0 ? null : Math.Round(samples.Average(s => s.Level), 1),
             MinLevel: samples.Count == 0 ? null : samples.Min(s => s.Level),
