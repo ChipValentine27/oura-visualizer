@@ -10,10 +10,17 @@ namespace OuraViz.Api.Controllers;
 public class BatteryController(OuraDbContext db) : ControllerBase
 {
     /// <summary>
+    /// More readings than this are thinned for the chart: enough to draw a long range in full detail
+    /// without sending every sample to the browser.
+    /// </summary>
+    private const int MaxChartReadings = 3000;
+
+    /// <summary>
     /// GET /api/battery?start=2025-01-01&amp;end=2025-12-31&amp;interval=weekly&amp;timeZone=America/New_York
-    /// Ring battery levels grouped into the same calendar buckets as /api/metrics. Days are the
-    /// viewer's local days (<paramref name="timeZone"/> is an IANA or Windows zone id), since a
-    /// sample at 11pm belongs to that evening, not to the next UTC day.
+    /// The battery levels Oura reported between local midnight on <paramref name="start"/> and the
+    /// end of <paramref name="end"/>, plus the average, lowest and highest of them for the range and
+    /// for each calendar bucket (the same buckets as /api/metrics). <paramref name="timeZone"/> is an
+    /// IANA or Windows zone id; days are the viewer's local days.
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<BatteryResponse>> Get(
@@ -36,16 +43,10 @@ public class BatteryController(OuraDbContext db) : ControllerBase
                 .OrderBy(r => r.TimestampMs)
                 .Select(r => new { r.TimestampMs, r.Level, r.Charging, r.InCharger })
                 .ToListAsync(ct))
-            .Select(r => new Sample(
-                r.TimestampMs,
-                LocalDay(r.TimestampMs, tz),
-                r.Level,
-                r.Charging == true || r.InCharger == true))
+            .Select(r => new BatteryReading(r.TimestampMs, r.Level, r.Charging, r.InCharger))
             .ToList();
 
-        var chargeStarts = ChargeStartDays(samples);
-        var chargesByDay = chargeStarts.CountBy(d => d).ToDictionary();
-        var byDay = samples.GroupBy(s => s.Day).ToDictionary(
+        var byDay = samples.GroupBy(s => LocalDay(s.Timestamp, tz)).ToDictionary(
             g => g.Key,
             g => new DayStats(g.Count(), g.Sum(s => (long)s.Level), g.Min(s => s.Level), g.Max(s => s.Level)));
 
@@ -60,79 +61,53 @@ public class BatteryController(OuraDbContext db) : ControllerBase
             var to = bucketEnd > end ? end : bucketEnd;
 
             var days = new List<DayStats>();
-            var charges = 0;
             for (var d = from; d <= to; d = d.AddDays(1))
-            {
                 if (byDay.TryGetValue(d, out var stats)) days.Add(stats);
-                charges += chargesByDay.GetValueOrDefault(d);
-            }
 
             var readings = days.Sum(s => s.Count);
             buckets.Add(new BatteryBucket(
                 from, to,
                 Readings: readings,
-                DaysWithData: days.Count,
                 AverageLevel: readings == 0 ? null : Math.Round((double)days.Sum(s => s.Sum) / readings, 1),
                 MinLevel: readings == 0 ? null : days.Min(s => s.Min),
-                MaxLevel: readings == 0 ? null : days.Max(s => s.Max),
-                Charges: charges));
+                MaxLevel: readings == 0 ? null : days.Max(s => s.Max)));
         }
 
-        var latest = samples.LastOrDefault();
+        var chartReadings = Thin(samples, fromMs, toMs);
         return new BatteryResponse(
-            start, end, interval, buckets,
-            Readings: samples.Count,
-            DaysWithData: byDay.Count,
+            start, end, interval, fromMs, toMs,
+            Readings: chartReadings,
+            ReadingCount: samples.Count,
+            Thinned: chartReadings.Count < samples.Count,
+            Buckets: buckets,
             AverageLevel: samples.Count == 0 ? null : Math.Round(samples.Average(s => s.Level), 1),
             MinLevel: samples.Count == 0 ? null : samples.Min(s => s.Level),
-            Latest: latest is null ? null : new BatteryReading(latest.TimestampMs, latest.Level, latest.Charging),
-            ChargeCount: chargeStarts.Count);
+            MaxLevel: samples.Count == 0 ? null : samples.Max(s => s.Level),
+            Latest: samples.LastOrDefault());
     }
-
-    private record Sample(long TimestampMs, DateOnly Day, int Level, bool Charging);
-
-    private record DayStats(int Count, long Sum, int Min, int Max);
-
-    /// <summary>Charging flags this close together belong to one session on the charger.</summary>
-    private const long ChargeMergeGapMs = 10 * 60_000;
-
-    /// <summary>A session that gains less than this is a flag blip (ring set down briefly), not a charge.</summary>
-    private const int MinChargeGain = 2;
 
     /// <summary>
-    /// The local day each real charge started on. Oura's charging flag flickers: it can blink on
-    /// for a minute with no gain, or drop out mid-charge. So charging samples less than
-    /// <see cref="ChargeMergeGapMs"/> apart form one session, and a session counts only if the level
-    /// rose by at least <see cref="MinChargeGain"/> points by the time it ended.
+    /// Keeps at most <see cref="MaxChartReadings"/> readings by splitting the range into equal
+    /// slots and keeping each slot's lowest and highest reading. Every kept point is a real
+    /// reading (nothing is averaged), and the line's peaks and troughs survive.
     /// </summary>
-    private static List<DateOnly> ChargeStartDays(List<Sample> samples)
+    private static List<BatteryReading> Thin(List<BatteryReading> samples, long fromMs, long toMs)
     {
-        var days = new List<DateOnly>();
-        Sample? first = null;
-        var lastChargingMs = 0L;
-        var maxLevel = 0;
+        if (samples.Count <= MaxChartReadings) return samples;
 
-        void Close()
-        {
-            if (first is not null && maxLevel - first.Level >= MinChargeGain) days.Add(first.Day);
-            first = null;
-        }
-
-        foreach (var s in samples)
-        {
-            if (first is not null && s.TimestampMs - lastChargingMs > ChargeMergeGapMs) Close();
-            if (first is not null) maxLevel = Math.Max(maxLevel, s.Level);
-            if (!s.Charging) continue;
-            if (first is null)
+        var slotMs = Math.Max(1, (toMs - fromMs) / (MaxChartReadings / 2));
+        return samples
+            .GroupBy(s => (s.Timestamp - fromMs) / slotMs)
+            .SelectMany(g =>
             {
-                first = s;
-                maxLevel = s.Level;
-            }
-            lastChargingMs = s.TimestampMs;
-        }
-        Close();
-        return days;
+                var low = g.MinBy(s => s.Level)!;
+                var high = g.MaxBy(s => s.Level)!;
+                return low == high ? [low] : new[] { low, high }.OrderBy(s => s.Timestamp).ToArray();
+            })
+            .ToList();
     }
+
+    private record DayStats(int Count, long Sum, int Min, int Max);
 
     private static DateOnly LocalDay(long timestampMs, TimeZoneInfo tz) =>
         DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTimeOffset.FromUnixTimeMilliseconds(timestampMs).UtcDateTime, tz));
@@ -146,17 +121,19 @@ public class BatteryController(OuraDbContext db) : ControllerBase
     }
 }
 
-/// <summary>Levels are 0–100%; latest.timestamp is Unix milliseconds.</summary>
-public record BatteryResponse(
-    DateOnly Start, DateOnly End, Interval Interval, List<BatteryBucket> Buckets,
-    int Readings, int DaysWithData, double? AverageLevel, int? MinLevel, BatteryReading? Latest, int ChargeCount);
-
 /// <summary>
-/// One calendar bucket: the mean, low and high of its samples (null when it has none) and how
-/// many charges started in it.
+/// Levels are 0–100% as Oura reported them; timestamps (and From/To, the range's bounds) are Unix
+/// milliseconds. Readings may be thinned for long ranges (see Thinned); the stats use every reading.
 /// </summary>
-public record BatteryBucket(
-    DateOnly Start, DateOnly End, int Readings, int DaysWithData,
-    double? AverageLevel, int? MinLevel, int? MaxLevel, int Charges);
+public record BatteryResponse(
+    DateOnly Start, DateOnly End, Interval Interval, long From, long To,
+    List<BatteryReading> Readings, int ReadingCount, bool Thinned,
+    List<BatteryBucket> Buckets,
+    double? AverageLevel, int? MinLevel, int? MaxLevel, BatteryReading? Latest);
 
-public record BatteryReading(long Timestamp, int Level, bool Charging);
+/// <summary>The average, lowest and highest reported level in one calendar bucket; null when it has none.</summary>
+public record BatteryBucket(
+    DateOnly Start, DateOnly End, int Readings, double? AverageLevel, int? MinLevel, int? MaxLevel);
+
+/// <summary>One reading as Oura reported it, including its charging and in_charger fields.</summary>
+public record BatteryReading(long Timestamp, int Level, bool? Charging, bool? InCharger);

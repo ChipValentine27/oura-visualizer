@@ -179,6 +179,7 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
     {
         var rng = new Random(23);
         var now = DateTimeOffset.UtcNow;
+        if (to > now) to = now; // a ring can't have reported a reading that hasn't happened yet
         var step = TimeSpan.FromMinutes(30);
         var readings = new List<RingBatteryReading>();
         var level = 80.0;

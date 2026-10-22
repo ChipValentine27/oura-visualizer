@@ -622,25 +622,17 @@ th {
 
 /* Buttons for the open tab only (e.g. Sync battery), at the right end of the tab bar. */
 .tabs {
+  flex-wrap: wrap;
   align-items: center;
 }
 .tab-actions {
   margin-left: auto;
   padding-bottom: 6px;
 }
+.tabs [role='tab'] {
+  white-space: nowrap;
+}
 .btn-small {
   padding: 5px 12px;
   font-size: 0.9rem;
-}
-
-.legend {
-  display: flex;
-  gap: 16px;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-.legend > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }

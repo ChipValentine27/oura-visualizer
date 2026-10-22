@@ -36,32 +36,42 @@ export interface SyncResult {
   scoreDays: number
 }
 
-/** One calendar bucket of ring battery samples (local days). Levels are 0–100%. */
+/** One battery reading as Oura reported it. Timestamp is Unix milliseconds; level 0–100%. */
+export interface BatteryReading {
+  timestamp: number
+  level: number
+  charging: boolean | null
+  inCharger: boolean | null
+}
+
+/** The average, lowest and highest reported level in one calendar bucket (local days). */
 export interface BatteryBucket {
   start: string
   end: string
   readings: number
-  daysWithData: number
-  /** Mean, low and high of the bucket's samples; null when it has none. */
+  /** Null when the bucket has no readings. */
   averageLevel: number | null
   minLevel: number | null
   maxLevel: number | null
-  /** Charges that started in the bucket (flag blips with no gain don't count). */
-  charges: number
 }
 
 export interface BatteryResponse {
   start: string
   end: string
   interval: Interval
+  /** The range's bounds (local midnights) as Unix milliseconds. */
+  from: number
+  to: number
+  /** Real readings, in time order; long ranges keep each stretch's lowest and highest (see thinned). */
+  readings: BatteryReading[]
+  readingCount: number
+  thinned: boolean
   buckets: BatteryBucket[]
-  readings: number
-  daysWithData: number
+  /** Over every reading in the range. */
   averageLevel: number | null
   minLevel: number | null
-  /** Timestamp is Unix milliseconds. */
-  latest: { timestamp: number; level: number; charging: boolean } | null
-  chargeCount: number
+  maxLevel: number | null
+  latest: BatteryReading | null
 }
 
 export interface BatterySyncResult {

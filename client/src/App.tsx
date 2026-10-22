@@ -648,7 +648,7 @@ function HealthView({
   )
 }
 
-const BATTERY_COLORS = { level: seriesColor('blue'), range: seriesColor('blue') }
+const BATTERY_COLOR = seriesColor('blue')
 
 const batteryTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
@@ -663,7 +663,7 @@ interface BatteryViewProps {
 
 function BatteryView({ data, loading, showTable, onToggleTable }: BatteryViewProps) {
   const { latest, interval } = data
-  const perDay = data.daysWithData === 0 ? null : data.chargeCount / data.daysWithData
+  const readings = `${formatNumber(data.readingCount)} readings`
 
   return (
     <>
@@ -671,53 +671,42 @@ function BatteryView({ data, loading, showTable, onToggleTable }: BatteryViewPro
         <Stat
           label="Latest"
           value={percent(latest?.level ?? null)}
-          note={
-            latest
-              ? `${latest.charging ? 'Charging · ' : ''}${batteryTime.format(new Date(latest.timestamp))}`
-              : 'No readings'
-          }
+          note={latest ? batteryTime.format(new Date(latest.timestamp)) : 'No readings'}
         />
-        <Stat
-          label="Average level"
-          value={percent(data.averageLevel)}
-          note={`${formatNumber(data.daysWithData)} days with data`}
-        />
-        <Stat label="Lowest level" value={percent(data.minLevel)} note={`${formatNumber(data.readings)} readings`} />
-        <Stat
-          label="Charges"
-          value={formatNumber(data.chargeCount)}
-          note={perDay === null ? undefined : `${perDay.toFixed(1)} per day with data`}
-        />
+        <Stat label="Average" value={percent(data.averageLevel)} note={readings} />
+        <Stat label="Lowest" value={percent(data.minLevel)} />
+        <Stat label="Highest" value={percent(data.maxLevel)} />
       </section>
 
       <section className="card" aria-busy={loading}>
         <div className="card-header">
           <div>
-            <h2>Battery level by {UNIT[interval]}</h2>
+            <h2>Battery level</h2>
             <p className="card-sub">
-              The line is each {UNIT[interval]}'s average reading; the band runs from its lowest to highest. Gaps
-              mean no readings.
+              Each reading Oura reported, labelled by {UNIT[interval]}. Gaps mean no readings.
+              {data.thinned &&
+                ` To fit, the chart shows the lowest and highest of each short stretch (${formatNumber(data.readings.length)} of ${readings}).`}
             </p>
           </div>
           <div className="card-tools">
-            <div className="legend" aria-hidden>
-              <span>
-                <span className="swatch" style={{ background: BATTERY_COLORS.level.fill }} /> Average
-              </span>
-              <span>
-                <span className="swatch" style={{ background: BATTERY_COLORS.range.fill, opacity: 0.35 }} /> Low – high
-              </span>
-            </div>
             <button className="link" onClick={onToggleTable}>
               {showTable ? 'Hide table' : 'Show table'}
             </button>
           </div>
         </div>
 
-        {data.readings === 0 ? (
+        {data.readingCount === 0 ? (
           <div className="empty">No battery data in this range. Click “Sync battery” to pull it from Oura.</div>
         ) : (
-          <BatteryChart buckets={data.buckets} interval={interval} colors={BATTERY_COLORS} />
+          <BatteryChart
+            readings={data.readings}
+            start={data.start}
+            end={data.end}
+            from={data.from}
+            to={data.to}
+            interval={interval}
+            color={BATTERY_COLOR}
+          />
         )}
 
         {showTable && (
@@ -729,7 +718,6 @@ function BatteryView({ data, loading, showTable, onToggleTable }: BatteryViewPro
                   <th className="num">Average</th>
                   <th className="num">Lowest</th>
                   <th className="num">Highest</th>
-                  <th className="num">Charges</th>
                   <th className="num">Readings</th>
                 </tr>
               </thead>
@@ -740,7 +728,6 @@ function BatteryView({ data, loading, showTable, onToggleTable }: BatteryViewPro
                     <td className="num">{percent(b.averageLevel)}</td>
                     <td className="num">{percent(b.minLevel)}</td>
                     <td className="num">{percent(b.maxLevel)}</td>
-                    <td className="num">{b.readings === 0 ? '—' : formatNumber(b.charges)}</td>
                     <td className="num">{formatNumber(b.readings)}</td>
                   </tr>
                 ))}
