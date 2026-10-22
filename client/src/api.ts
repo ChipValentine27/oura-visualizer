@@ -1,10 +1,70 @@
 export type Interval = 'daily' | 'weekly' | 'monthly' | 'yearly'
-export type MetricId = 'steps' | 'sleep' | 'sleepScore' | 'readinessScore' | 'activityScore'
+
+/** Every metric the API serves, as /api/metrics/{id}. Grouped and labelled in metrics.ts. */
+export type MetricId =
+  // Activity
+  | 'steps'
+  | 'activityScore'
+  | 'highActivityTime'
+  | 'mediumActivityTime'
+  | 'lowActivityTime'
+  | 'sedentaryTime'
+  | 'restingTime'
+  | 'nonWearTime'
+  | 'walkingDistance'
+  | 'targetMeters'
+  // Sleep
+  | 'sleep'
+  | 'sleepScore'
+  | 'deepSleep'
+  | 'lightSleep'
+  | 'remSleep'
+  | 'awakeTime'
+  | 'timeInBed'
+  | 'latency'
+  | 'efficiency'
+  | 'bedtimeStart'
+  | 'bedtimeEnd'
+  // Readiness
+  | 'readinessScore'
+  | 'temperatureDeviation'
+  | 'temperatureTrendDeviation'
+  | 'stressHigh'
+  | 'recoveryHigh'
+  // Heart and breathing
+  | 'heartRate'
+  | 'heartRateMin'
+  | 'heartRateMax'
+  | 'sleepLowestHeartRate'
+  | 'sleepAverageHeartRate'
+  | 'sleepMaxHeartRate'
+  | 'sleepAverageHrv'
+  | 'sleepMaxHrv'
+  | 'averageBreath'
+  | 'spo2'
+  | 'breathingDisturbanceIndex'
+
+/**
+ * timeOfDay values are seconds from local midnight (negative the evening before);
+ * celsius values are deviations from the user's baseline.
+ */
+export type Unit =
+  | 'steps'
+  | 'seconds'
+  | 'timeOfDay'
+  | 'score'
+  | 'percent'
+  | 'bpm'
+  | 'ms'
+  | 'breathsPerMinute'
+  | 'celsius'
+  | 'index'
+  | 'meters'
 
 export interface Bucket {
   start: string
   end: string
-  /** Steps are counts; sleep is seconds; scores are summed 0–100 values (use averagePerDay). */
+  /** Sum of the bucket's daily values, in the metric's unit (use averagePerDay to compare). */
   total: number
   daysWithData: number
   averagePerDay: number
@@ -12,7 +72,7 @@ export interface Bucket {
 
 export interface SeriesResponse {
   metric: MetricId
-  unit: 'steps' | 'seconds' | 'score'
+  unit: Unit
   start: string
   end: string
   interval: Interval
@@ -34,6 +94,9 @@ export interface SyncResult {
   activityDays: number
   sleepDays: number
   scoreDays: number
+  healthDays: number
+  /** Oura collections the connection couldn't read (usually a scope that wasn't granted). */
+  skipped: string[]
 }
 
 export interface OuraStatus {

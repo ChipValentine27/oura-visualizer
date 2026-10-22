@@ -5,9 +5,9 @@ public enum Interval { Daily, Weekly, Monthly, Yearly }
 public record MetricBucket(
     DateOnly Start,
     DateOnly End,
-    long Total,
+    double Total,
     int DaysWithData,
-    long AveragePerDay);
+    double AveragePerDay);
 
 public static class MetricAggregator
 {
@@ -16,7 +16,7 @@ public static class MetricAggregator
     /// are still emitted (with zeros) so gaps stay visible on the chart instead of collapsing.
     /// Partial first/last buckets are clipped to the requested range.
     /// </summary>
-    public static List<MetricBucket> Aggregate(IReadOnlyDictionary<DateOnly, long> byDay, DateOnly start, DateOnly end, Interval interval)
+    public static List<MetricBucket> Aggregate(IReadOnlyDictionary<DateOnly, double> byDay, DateOnly start, DateOnly end, Interval interval)
     {
         var buckets = new List<MetricBucket>();
 
@@ -26,7 +26,7 @@ public static class MetricAggregator
             var bucketEnd = Next(bucketStart, interval).AddDays(-1);
             var to = bucketEnd > end ? end : bucketEnd;
 
-            long total = 0;
+            double total = 0;
             var count = 0;
             for (var d = from; d <= to; d = d.AddDays(1))
             {
@@ -37,7 +37,7 @@ public static class MetricAggregator
                 }
             }
 
-            buckets.Add(new MetricBucket(from, to, total, count, count == 0 ? 0 : (long)Math.Round((double)total / count)));
+            buckets.Add(new MetricBucket(from, to, total, count, count == 0 ? 0 : total / count));
         }
 
         return buckets;

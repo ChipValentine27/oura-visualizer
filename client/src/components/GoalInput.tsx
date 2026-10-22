@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react'
-import type { MetricConfig } from '../metrics'
+import type { GoalConfig, MetricConfig } from '../metrics'
 
 interface Props {
   metric: MetricConfig
+  /** The metric's goal settings; only metrics that can have a goal get a goal box. */
+  config: GoalConfig
   /** The goal in effect: the user's own, or the metric's default (period average or fixed). */
   goal: number
   /** True when the user typed this goal; false while it uses the metric's default. */
@@ -16,10 +18,10 @@ interface Props {
  * Editable daily goal shown inside a series chip. Commits on Enter or blur, reverts on Escape,
  * and keeps text it can't read (flagged as invalid) so the user can fix it.
  */
-export function GoalInput({ metric, goal, isCustom, disabled, onChange }: Props) {
-  const formatted = goal > 0 ? metric.formatGoal(goal) : ''
-  const followsAverage = metric.defaultGoal === 'average'
-  const defaultText = followsAverage ? '' : metric.formatGoal(metric.defaultGoal as number)
+export function GoalInput({ metric, config, goal, isCustom, disabled, onChange }: Props) {
+  const formatted = goal > 0 ? config.format(goal) : ''
+  const followsAverage = config.defaultGoal === 'average'
+  const defaultText = followsAverage ? '' : config.format(config.defaultGoal as number)
   // While editing (or holding unreadable text) the box shows the draft; otherwise the live goal,
   // so it keeps following the average as the date range changes.
   const [draft, setDraft] = useState<string | null>(null)
@@ -37,7 +39,7 @@ export function GoalInput({ metric, goal, isCustom, disabled, onChange }: Props)
       onChange(null)
       return
     }
-    const value = metric.parseGoal(draft)
+    const value = config.parse(draft)
     if (value === null) {
       setInvalid(true)
       return
@@ -54,13 +56,13 @@ export function GoalInput({ metric, goal, isCustom, disabled, onChange }: Props)
       </span>
       <input
         type="text"
-        inputMode={metric.id === 'steps' ? 'numeric' : 'text'}
+        inputMode={config.inputMode}
         className="goal-input"
         value={draft ?? formatted}
         disabled={disabled}
         aria-label={`${metric.label} daily goal`}
         aria-invalid={invalid}
-        title={invalid ? `Couldn't read that. ${metric.goalHint}` : metric.goalHint}
+        title={invalid ? `Couldn't read that. ${config.hint}` : config.hint}
         size={7}
         onFocus={(e) => {
           if (draft === null) setDraft(formatted)

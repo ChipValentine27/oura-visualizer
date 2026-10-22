@@ -56,6 +56,17 @@ export function bucketLabel(start: string, end: string, interval: Interval) {
 
 export const formatNumber = (n: number) => n.toLocaleString()
 
+const clock = fmt({ hour: 'numeric', minute: '2-digit' })
+
+/**
+ * Seconds from local midnight as a clock time in the user's locale ("11:24 PM"). Wraps
+ * around midnight, so −1,800 (the evening before) reads as 11:30 PM.
+ */
+export function formatClock(seconds: number) {
+  const minutes = ((Math.round(seconds / 60) % 1440) + 1440) % 1440
+  return clock.format(new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60))
+}
+
 /** Seconds as "7h 32m"; long totals drop the minutes ("1,240h"). */
 export function formatDuration(seconds: number) {
   const totalMinutes = Math.round(seconds / 60)

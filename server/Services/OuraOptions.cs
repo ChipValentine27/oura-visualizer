@@ -13,8 +13,12 @@ public class OuraOptions
     /// </summary>
     public string? RedirectUri { get; set; }
 
-    /// <summary>Space-separated Oura scopes. "daily" covers daily activity, sleep and readiness.</summary>
-    public string Scopes { get; set; } = "daily";
+    /// <summary>
+    /// Space-separated Oura scopes. "daily" covers daily activity, sleep, readiness and stress;
+    /// the others unlock all-day heart rate and SpO2. Sync skips any
+    /// collection the connection lacks a scope for.
+    /// </summary>
+    public string Scopes { get; set; } = "daily heartrate spo2Daily";
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(ClientSecret);
 }

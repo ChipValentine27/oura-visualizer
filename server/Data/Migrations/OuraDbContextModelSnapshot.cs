@@ -25,14 +25,38 @@ namespace OuraViz.Api.Data.Migrations
                     b.Property<int>("ActiveCalories")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("EquivalentWalkingDistanceMeters")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("HighActivitySeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LowActivitySeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MediumActivitySeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("NonWearSeconds")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("OuraId")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("RestingSeconds")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("Score")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("SedentarySeconds")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Steps")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("TargetMeters")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("TotalCalories")
@@ -46,6 +70,40 @@ namespace OuraViz.Api.Data.Migrations
                     b.ToTable("DailyActivities");
                 });
 
+            modelBuilder.Entity("OuraViz.Api.Models.DailyHealth", b =>
+                {
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("BreathingDisturbanceIndex")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("HeartRateAverage")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("HeartRateMax")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("HeartRateMin")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("RecoveryHighSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("Spo2Average")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("StressHighSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Day");
+
+                    b.ToTable("DailyHealth");
+                });
+
             modelBuilder.Entity("OuraViz.Api.Models.DailyScore", b =>
                 {
                     b.Property<DateOnly>("Day")
@@ -56,6 +114,12 @@ namespace OuraViz.Api.Data.Migrations
 
                     b.Property<int?>("SleepScore")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double?>("TemperatureDeviation")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("TemperatureTrendDeviation")
+                        .HasColumnType("REAL");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("TEXT");
@@ -70,14 +134,44 @@ namespace OuraViz.Api.Data.Migrations
                     b.Property<DateOnly>("Day")
                         .HasColumnType("TEXT");
 
+                    b.Property<double?>("AverageBreath")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("AverageHeartRate")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("AverageHrv")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("AwakeSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("BedtimeEndOffsetSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("BedtimeStartOffsetSeconds")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("DeepSleepSeconds")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("Efficiency")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LatencySeconds")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("LightSleepSeconds")
                         .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LowestHeartRate")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("MaxHeartRate")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("MaxHrv")
+                        .HasColumnType("REAL");
 
                     b.Property<int>("PeriodCount")
                         .HasColumnType("INTEGER");
