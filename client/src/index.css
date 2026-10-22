@@ -374,7 +374,7 @@ th {
   gap: 4px;
   border-bottom: 1px solid var(--border);
 }
-.tabs button {
+.tabs [role='tab'] {
   border: none;
   background: none;
   padding: 8px 14px;
@@ -383,10 +383,10 @@ th {
   color: var(--text-secondary);
   font-weight: 500;
 }
-.tabs button:hover {
+.tabs [role='tab']:hover {
   color: var(--text-primary);
 }
-.tabs button.selected {
+.tabs [role='tab'].selected {
   color: var(--text-primary);
   border-bottom-color: var(--text-primary);
 }
@@ -611,6 +611,30 @@ th {
   .stats-even {
     grid-template-columns: 1fr;
   }
+}
+
+/* The open tab's content; spaced like the page's own sections. */
+.view-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Buttons for the open tab only (e.g. Sync battery), at the right end of the tab bar. */
+.tabs {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.tab-actions {
+  margin-left: auto;
+  padding-bottom: 6px;
+}
+.tabs [role='tab'] {
+  white-space: nowrap;
+}
+.btn-small {
+  padding: 5px 12px;
+  font-size: 0.9rem;
 }
 
 .metric-picker {

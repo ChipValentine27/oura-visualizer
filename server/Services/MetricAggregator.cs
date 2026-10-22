@@ -43,7 +43,7 @@ public static class MetricAggregator
         return buckets;
     }
 
-    private static DateOnly BucketStart(DateOnly day, Interval interval) => interval switch
+    public static DateOnly BucketStart(DateOnly day, Interval interval) => interval switch
     {
         Interval.Daily => day,
         // ISO weeks start on Monday.
@@ -53,7 +53,7 @@ public static class MetricAggregator
         _ => throw new ArgumentOutOfRangeException(nameof(interval)),
     };
 
-    private static DateOnly Next(DateOnly bucketStart, Interval interval) => interval switch
+    public static DateOnly Next(DateOnly bucketStart, Interval interval) => interval switch
     {
         Interval.Daily => bucketStart.AddDays(1),
         Interval.Weekly => bucketStart.AddDays(7),

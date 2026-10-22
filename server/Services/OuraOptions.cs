@@ -15,10 +15,11 @@ public class OuraOptions
 
     /// <summary>
     /// Space-separated Oura scopes. "daily" covers daily activity, sleep, readiness and stress;
-    /// the others unlock all-day heart rate and SpO2. Sync skips any
-    /// collection the connection lacks a scope for.
+    /// "heartrate" and "spo2Daily" unlock all-day heart rate and SpO2, and "ring_configuration"
+    /// covers ring data such as battery level. Sync skips any collection the connection lacks a
+    /// scope for.
     /// </summary>
-    public string Scopes { get; set; } = "daily heartrate spo2Daily";
+    public string Scopes { get; set; } = "daily heartrate spo2Daily ring_configuration";
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(ClientSecret);
 }

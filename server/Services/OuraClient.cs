@@ -38,6 +38,27 @@ public class OuraClient(HttpClient http, OuraTokenService tokens, ILogger<OuraCl
     public Task<List<OuraSleepPeriod>> GetSleepPeriodsAsync(DateOnly start, DateOnly end, CancellationToken ct) =>
         GetCollectionAsync<OuraSleepPeriod>("sleep", start, end, optional: false, ct);
 
+    /// <summary>
+    /// Ring battery samples between two instants. A time series, so it takes datetimes rather
+    /// than days; the range is requested in <see cref="BatteryWindow"/> slices to keep each
+    /// request small. Not optional: without the ring_configuration scope Oura answers 401, which
+    /// surfaces as <see cref="OuraAccessDeniedException"/> so the sync can say so.
+    /// </summary>
+    public async Task<List<OuraBatteryLevel>> GetRingBatteryLevelsAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        var results = new List<OuraBatteryLevel>();
+        for (var windowStart = from; windowStart < to; windowStart += BatteryWindow)
+        {
+            var windowEnd = windowStart + BatteryWindow < to ? windowStart + BatteryWindow : to;
+            var query = $"start_datetime={Uri.EscapeDataString(windowStart.ToString("o"))}&end_datetime={Uri.EscapeDataString(windowEnd.ToString("o"))}";
+            results.AddRange(await GetPagesAsync<OuraBatteryLevel>("ring_battery_level", query, optional: false, ct));
+        }
+        return results;
+    }
+
+    /// <summary>Oura caps how much time-series data one request may cover; stay well inside it.</summary>
+    private static readonly TimeSpan BatteryWindow = TimeSpan.FromDays(7);
+
     // The collections below need scopes beyond "daily" (or are newer); a connection without
     // them gets OuraCollectionUnavailableException rather than a failed sync.
 
@@ -128,7 +149,7 @@ public class OuraClient(HttpClient http, OuraTokenService tokens, ILogger<OuraCl
         using (res)
         {
             if (res.StatusCode == HttpStatusCode.Unauthorized)
-                throw new OuraNotConnectedException("Oura rejected the access token. Connect again.");
+                throw new OuraAccessDeniedException("Oura rejected the access token. Connect again.");
             res.EnsureSuccessStatusCode();
             return await res.Content.ReadFromJsonAsync<T>(ct)
                 ?? throw new InvalidOperationException("Empty response from Oura API.");
@@ -142,6 +163,12 @@ public class OuraClient(HttpClient http, OuraTokenService tokens, ILogger<OuraCl
         return http.SendAsync(req, ct);
     }
 }
+
+/// <summary>
+/// Oura answered 401 even to a freshly refreshed token. Usually the connection is dead, but an
+/// endpoint the grant doesn't cover (such as ring battery) answers the same way.
+/// </summary>
+public class OuraAccessDeniedException(string message) : OuraNotConnectedException(message);
 
 public record OuraPage<T>(
     [property: JsonPropertyName("data")] List<T> Data,
@@ -169,6 +196,16 @@ public record OuraDailyScoreDoc(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("day")] DateOnly Day,
     [property: JsonPropertyName("score")] int? Score);
+
+/// <summary>
+/// One ring_battery_level sample. Level is 0–100; the charging flags may be null. Read from
+/// "timestamp" rather than "timestamp_unix", which some responses (the sandbox) leave out.
+/// </summary>
+public record OuraBatteryLevel(
+    [property: JsonPropertyName("timestamp")] DateTimeOffset Timestamp,
+    [property: JsonPropertyName("level")] int Level,
+    [property: JsonPropertyName("charging")] bool? Charging,
+    [property: JsonPropertyName("in_charger")] bool? InCharger);
 
 /// <summary>Temperatures are °C deviations from the user's baseline.</summary>
 public record OuraDailyReadiness(

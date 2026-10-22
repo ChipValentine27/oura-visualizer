@@ -99,6 +99,48 @@ export interface SyncResult {
   skipped: string[]
 }
 
+/** One battery reading as Oura reported it. Timestamp is Unix milliseconds; level 0–100%. */
+export interface BatteryReading {
+  timestamp: number
+  level: number
+  charging: boolean | null
+  inCharger: boolean | null
+}
+
+/** The average, lowest and highest reported level in one calendar bucket (local days). */
+export interface BatteryBucket {
+  start: string
+  end: string
+  readings: number
+  /** Null when the bucket has no readings. */
+  averageLevel: number | null
+  minLevel: number | null
+  maxLevel: number | null
+}
+
+export interface BatteryResponse {
+  start: string
+  end: string
+  interval: Interval
+  /** The range's bounds (local midnights) as Unix milliseconds. */
+  from: number
+  to: number
+  /** Real readings, in time order; long ranges keep each stretch's lowest and highest (see thinned). */
+  readings: BatteryReading[]
+  readingCount: number
+  thinned: boolean
+  buckets: BatteryBucket[]
+  /** Over every reading in the range. */
+  averageLevel: number | null
+  minLevel: number | null
+  maxLevel: number | null
+  latest: BatteryReading | null
+}
+
+export interface BatterySyncResult {
+  readings: number
+}
+
 export interface OuraStatus {
   configured: boolean
   connected: boolean
@@ -138,4 +180,21 @@ export const api = {
     request<SyncResult>(`/api/sync/oura?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
   seedDemo: (start: string, end: string) =>
     request<SyncResult>(`/api/sync/demo?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
+  /** Bucketed like {@link api.series}; days are local to the browser's time zone. */
+  battery: (start: string, end: string, interval: Interval, includeReadings: boolean, signal?: AbortSignal) =>
+    request<BatteryResponse>(
+      `/api/battery?${new URLSearchParams({
+        start,
+        end,
+        interval,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        includeReadings: String(includeReadings),
+      })}`,
+      { signal },
+    ),
+  /** `from`/`to` are ISO instants (`dayBounds` in dates.ts): Oura serves battery as a time series. */
+  syncBattery: (from: string, to: string) =>
+    request<BatterySyncResult>(`/api/sync/battery?${new URLSearchParams({ from, to })}`, { method: 'POST' }),
+  seedBatteryDemo: (from: string, to: string) =>
+    request<BatterySyncResult>(`/api/sync/battery/demo?${new URLSearchParams({ from, to })}`, { method: 'POST' }),
 }

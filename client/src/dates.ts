@@ -18,6 +18,25 @@ export const addDays = (iso: string, days: number) => {
 
 export const today = () => toIso(new Date())
 
+/** An instant as ISO 8601 with the local offset ("2025-03-01T00:00:00-05:00"). */
+function toIsoInstant(d: Date) {
+  const offset = -d.getTimezoneOffset()
+  const sign = offset >= 0 ? '+' : '-'
+  const abs = Math.abs(offset)
+  const hh = String(Math.floor(abs / 60)).padStart(2, '0')
+  const mm = String(abs % 60).padStart(2, '0')
+  const time = [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':')
+  return `${toIso(d)}T${time}${sign}${hh}:${mm}`
+}
+
+/** Local midnight at the start of `start` to local midnight after `end`, as ISO instants. */
+export function dayBounds(start: string, end: string) {
+  return {
+    from: toIsoInstant(new Date(`${start}T00:00:00`)),
+    to: toIsoInstant(new Date(`${addDays(end, 1)}T00:00:00`)),
+  }
+}
+
 const fmt = (opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(undefined, opts)
 const dayMonth = fmt({ month: 'short', day: 'numeric' })
 const dayMonthYear = fmt({ month: 'short', day: 'numeric', year: 'numeric' })

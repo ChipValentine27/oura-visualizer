@@ -1,6 +1,15 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
-import { api, type DataRange, type Interval, type MetricId, type OuraStatus, type SeriesResponse } from './api'
+import {
+  api,
+  type BatteryResponse,
+  type DataRange,
+  type Interval,
+  type MetricId,
+  type OuraStatus,
+  type SeriesResponse,
+} from './api'
 import { COLORS, isColorId, seriesColor, type ColorId } from './colors'
+import { BatteryChart, chartInterval, MAX_READING_DAYS, showsReadings } from './components/BatteryChart'
 import { ColorPicker } from './components/ColorPicker'
 import { GoalInput } from './components/GoalInput'
 import { MetricPicker, type PickerGroup } from './components/MetricPicker'
@@ -13,7 +22,7 @@ import {
   type VisibleSeries,
 } from './components/OverlayChart'
 import { ThemeToggle } from './components/ThemeToggle'
-import { addDays, bucketLabel, formatNumber, today } from './dates'
+import { addDays, bucketLabel, dayBounds, formatNumber, today } from './dates'
 import { CATEGORIES, MAX_VISIBLE_METRICS, METRIC_IDS, METRICS, UNITS, unitLabel, type UnitId } from './metrics'
 
 const INTERVALS: { value: Interval; label: string }[] = [
@@ -107,6 +116,23 @@ function loadVisible(): VisibleSeries {
     : byMetric((id) => id === 'steps' || id === 'sleep')
 }
 
+type View = 'health' | 'battery'
+
+const VIEWS: { value: View; label: string }[] = [
+  { value: 'health', label: 'Health Visualizer' },
+  { value: 'battery', label: 'Battery Life' },
+]
+
+const VIEW_KEY = 'ouraviz.view'
+
+function loadView(): View {
+  try {
+    return localStorage.getItem(VIEW_KEY) === '"battery"' ? 'battery' : 'health'
+  } catch {
+    return 'health'
+  }
+}
+
 /** Metrics fed by each optional Oura collection, for naming what a skipped collection leaves empty. */
 const COLLECTION_METRICS: Record<string, string[]> = {
   daily_spo2: ['Blood oxygen (SpO₂)', 'Breathing disturbance'],
@@ -139,6 +165,11 @@ export default function App() {
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [battery, setBattery] = useState<BatteryResponse | null>(null)
+  const [batteryLoading, setBatteryLoading] = useState(false)
+  const [batteryReloadKey, setBatteryReloadKey] = useState(0)
+  const [showBatteryTable, setShowBatteryTable] = useState(false)
+  const [view, setView] = useState<View>(loadView)
 
   const loadMeta = useCallback(async () => {
     const [r, s] = await Promise.all([api.range(), api.ouraStatus()])
@@ -202,6 +233,30 @@ export default function App() {
     return () => ctrl.abort()
   }, [queryKey, shownKey, series, start, end, interval])
 
+  // Battery is fetched on its own, only while its tab is open, so syncing it never refetches the
+  // health metrics and vice versa. It shares the date range and interval with the health view.
+  useEffect(() => {
+    if (view !== 'battery' || start > end) return
+    const ctrl = new AbortController()
+    setBatteryLoading(true)
+    api
+      .battery(start, end, chartInterval(start, end, interval), showsReadings(start, end), ctrl.signal)
+      .then((b) => {
+        setBattery(b)
+        setError(null)
+      })
+      .catch((e: Error) => {
+        if (e.name !== 'AbortError') setError(e.message)
+      })
+      .finally(() => setBatteryLoading(false))
+    return () => ctrl.abort()
+  }, [view, start, end, interval, batteryReloadKey])
+
+  const selectView = (next: View) => {
+    setView(next)
+    store(VIEW_KEY, next)
+  }
+
   const applyPreset = (days: number) => {
     setStart(addDays(end, -(days - 1)))
   }
@@ -238,13 +293,18 @@ export default function App() {
     })
   }
 
-  const runAction = async (label: string, action: () => Promise<unknown>) => {
+  /** Runs a header action, then reloads the data it touched (the health metrics by default). */
+  const runAction = async (
+    label: string,
+    action: () => Promise<unknown>,
+    reload: () => void = () => setReloadKey((k) => k + 1),
+  ) => {
     setBusy(label)
     setError(null)
     setNotice(null)
     try {
       await action()
-      setReloadKey((k) => k + 1)
+      reload()
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -252,6 +312,30 @@ export default function App() {
       await loadMeta().catch(() => {})
       setBusy(null)
     }
+  }
+
+  const reloadBattery = () => setBatteryReloadKey((k) => k + 1)
+
+  const syncBattery = () =>
+    runAction(
+      'battery',
+      async () => {
+        const { from, to } = dayBounds(start, end)
+        const { readings } = await api.syncBattery(from, to)
+        setNotice({
+          kind: 'success',
+          text:
+            readings === 0
+              ? `Oura returned no battery readings for ${start} to ${end}.`
+              : `Synced ${formatNumber(readings)} battery readings for ${start} to ${end}.`,
+        })
+      },
+      reloadBattery,
+    )
+
+  const seedBatteryDemo = () => {
+    const { from, to } = dayBounds(addDays(today(), -364), today())
+    return runAction('batteryDemo', () => api.seedBatteryDemo(from, to), reloadBattery)
   }
 
   const syncOura = async () => {
@@ -332,11 +416,36 @@ export default function App() {
         </div>
       )}
 
-      {/* A single tab for now; more views can join it here. */}
       <nav className="tabs" role="tablist" aria-label="View">
-        <button role="tab" aria-selected className="selected">
-          Health Visualizer
-        </button>
+        {VIEWS.map((v) => (
+          <button
+            key={v.value}
+            role="tab"
+            id={`tab-${v.value}`}
+            aria-selected={view === v.value}
+            aria-controls="view-panel"
+            className={view === v.value ? 'selected' : ''}
+            onClick={() => selectView(v.value)}
+          >
+            {v.label}
+          </button>
+        ))}
+        {view === 'battery' && (
+          // Battery syncs on its own, apart from "Sync from Oura" in the page header.
+          <div className="actions tab-actions">
+            <button className="btn btn-small" disabled={!!busy} onClick={seedBatteryDemo}>
+              {busy === 'batteryDemo' ? 'Loading…' : 'Load demo battery'}
+            </button>
+            <button
+              className="btn btn-small btn-primary"
+              disabled={!!busy || rangeInvalid || !oura?.connected}
+              title={oura?.connected ? `Sync ring battery levels for ${start} to ${end} from Oura` : 'Connect Oura first'}
+              onClick={syncBattery}
+            >
+              {busy === 'battery' ? 'Syncing…' : 'Sync battery'}
+            </button>
+          </div>
+        )}
       </nav>
 
       <section className="filters" aria-label="Filters">
@@ -374,24 +483,35 @@ export default function App() {
       {error && <div className="error" role="alert">{error}</div>}
       {rangeInvalid && <div className="error" role="alert">“From” must be on or before “To”.</div>}
 
-      {series && (
-        <HealthView
-          data={series.data}
-          interval={series.interval}
-          visible={visible}
-          onToggleMetric={toggleMetric}
-          onShowOnly={showOnly}
-          baseline={baseline}
-          onBaseline={setBaseline}
-          customGoals={customGoals}
-          onCustomGoal={setCustomGoal}
-          seriesColors={seriesColors}
-          onSeriesColor={setSeriesColor}
-          loading={loading}
-          showTable={showTable}
-          onToggleTable={() => setShowTable((s) => !s)}
-        />
-      )}
+      <div id="view-panel" role="tabpanel" aria-labelledby={`tab-${view}`} className="view-panel">
+        {view === 'health' && series && (
+          <HealthView
+            data={series.data}
+            interval={series.interval}
+            visible={visible}
+            onToggleMetric={toggleMetric}
+            onShowOnly={showOnly}
+            baseline={baseline}
+            onBaseline={setBaseline}
+            customGoals={customGoals}
+            onCustomGoal={setCustomGoal}
+            seriesColors={seriesColors}
+            onSeriesColor={setSeriesColor}
+            loading={loading}
+            showTable={showTable}
+            onToggleTable={() => setShowTable((s) => !s)}
+          />
+        )}
+        {view === 'battery' && battery && (
+          <BatteryView
+            data={battery}
+            chosenInterval={interval}
+            loading={batteryLoading}
+            showTable={showBatteryTable}
+            onToggleTable={() => setShowBatteryTable((s) => !s)}
+          />
+        )}
+      </div>
     </main>
   )
 }
@@ -699,6 +819,108 @@ function HealthView({
                         </Fragment>
                       )
                     })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  )
+}
+
+const BATTERY_COLOR = seriesColor('blue')
+
+const batteryTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+const percent = (v: number | null) => (v === null ? '—' : `${Math.round(v)}%`)
+
+interface BatteryViewProps {
+  data: BatteryResponse
+  /** The interval picked in the filters; data.interval may be coarser (see chartInterval). */
+  chosenInterval: Interval
+  loading: boolean
+  showTable: boolean
+  onToggleTable: () => void
+}
+
+function BatteryView({ data, chosenInterval, loading, showTable, onToggleTable }: BatteryViewProps) {
+  const { latest, interval } = data
+  const readings = `${formatNumber(data.readingCount)} readings`
+  const everyReading = showsReadings(data.start, data.end)
+  const coarsened = !everyReading && interval !== chosenInterval
+
+  return (
+    <>
+      <section className="stats stats-even" aria-label="Battery summary">
+        <Stat
+          label="Latest"
+          value={percent(latest?.level ?? null)}
+          note={latest ? batteryTime.format(new Date(latest.timestamp)) : 'No readings'}
+        />
+        <Stat label="Average" value={percent(data.averageLevel)} note={readings} />
+        <Stat label="Lowest" value={percent(data.minLevel)} />
+        <Stat label="Highest" value={percent(data.maxLevel)} />
+      </section>
+
+      <section className="card" aria-busy={loading}>
+        <div className="card-header">
+          <div>
+            <h2>{everyReading ? 'Battery level' : `Battery level by ${UNIT[interval]}`}</h2>
+            <p className="card-sub">
+              {everyReading
+                ? `Each reading Oura reported, labelled by ${UNIT[interval]}.`
+                : `Each ${UNIT[interval]}'s average reading, with a band from its lowest to highest. Ranges up to ${MAX_READING_DAYS} days show every reading.`}{' '}
+              Gaps mean no readings.
+              {coarsened &&
+                ` This range has too many ${UNIT[chosenInterval]}s to tell apart, so it's shown by ${UNIT[interval]}; pick a shorter range to see each ${UNIT[chosenInterval]}.`}
+              {data.thinned &&
+                ` To fit, the chart shows the lowest and highest of each short stretch (${formatNumber(data.readings.length)} of ${readings}).`}
+            </p>
+          </div>
+          <div className="card-tools">
+            <button className="link" onClick={onToggleTable}>
+              {showTable ? 'Hide table' : 'Show table'}
+            </button>
+          </div>
+        </div>
+
+        {data.readingCount === 0 ? (
+          <div className="empty">No battery data in this range. Click “Sync battery” to pull it from Oura.</div>
+        ) : (
+          <BatteryChart
+            readings={data.readings}
+            buckets={data.buckets}
+            start={data.start}
+            end={data.end}
+            from={data.from}
+            to={data.to}
+            interval={interval}
+            color={BATTERY_COLOR}
+          />
+        )}
+
+        {showTable && (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th className="num">Average</th>
+                  <th className="num">Lowest</th>
+                  <th className="num">Highest</th>
+                  <th className="num">Readings</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.buckets.map((b) => (
+                  <tr key={b.start}>
+                    <td>{bucketLabel(b.start, b.end, interval)}</td>
+                    <td className="num">{percent(b.averageLevel)}</td>
+                    <td className="num">{percent(b.minLevel)}</td>
+                    <td className="num">{percent(b.maxLevel)}</td>
+                    <td className="num">{formatNumber(b.readings)}</td>
                   </tr>
                 ))}
               </tbody>

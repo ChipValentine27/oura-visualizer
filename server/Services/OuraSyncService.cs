@@ -10,6 +10,8 @@ namespace OuraViz.Api.Services;
 /// </summary>
 public record SyncResult(int ActivityDays, int SleepDays, int ScoreDays, int HealthDays, List<string> Skipped);
 
+public record BatterySyncResult(int Readings);
+
 public class OuraSyncService(OuraDbContext db, OuraClient oura)
 {
     // Oura also records "rest" periods (lying down awake) and soft-deleted periods; neither is sleep.
@@ -153,6 +155,30 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
         await db.SaveChangesAsync(ct);
 
         return new SyncResult(activity.Count, sleep.Count, scores.Rows.Count, health.Rows.Count, skipped);
+    }
+
+    /// <summary>
+    /// Pulls ring battery samples in [from, to) from Oura. Kept apart from
+    /// <see cref="SyncFromOuraAsync"/> so battery and health data sync independently.
+    /// </summary>
+    public async Task<BatterySyncResult> SyncBatteryFromOuraAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var readings = (await oura.GetRingBatteryLevelsAsync(from, to, ct))
+            // Windows can overlap on their shared edge; keep one sample per instant.
+            .DistinctBy(r => r.Timestamp)
+            .Select(r => new RingBatteryReading
+            {
+                TimestampMs = r.Timestamp.ToUnixTimeMilliseconds(),
+                Level = r.Level,
+                Charging = r.Charging,
+                InCharger = r.InCharger,
+                UpdatedAt = now,
+            })
+            .ToList();
+
+        await ReplaceBatteryAsync(from, to, readings, ct);
+        return new BatterySyncResult(readings.Count);
     }
 
     /// <summary>
@@ -319,6 +345,67 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
         await db.SaveChangesAsync(ct);
 
         return new SyncResult(activity.Count, sleep.Count, scores.Count, health.Count, []);
+    }
+
+    /// <summary>
+    /// Generates a ring battery trace every 30 minutes over [from, to): a slow drain that's faster
+    /// by day, and a charge of about an hour and a half whenever the ring runs low.
+    /// </summary>
+    public async Task<BatterySyncResult> SeedBatteryDemoAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        var rng = new Random(23);
+        var now = DateTimeOffset.UtcNow;
+        if (to > now) to = now; // a ring can't have reported a reading that hasn't happened yet
+        var step = TimeSpan.FromMinutes(30);
+        var readings = new List<RingBatteryReading>();
+        var level = 80.0;
+        var charging = false;
+        var chargeBelow = 12 + rng.Next(14); // people top up at different levels
+
+        for (var t = from; t < to; t += step)
+        {
+            if (charging)
+            {
+                level = Math.Min(100, level + 22 + rng.NextDouble() * 6);
+                if (level >= 100) { charging = false; chargeBelow = 12 + rng.Next(14); }
+            }
+            else
+            {
+                var hour = t.ToLocalTime().Hour;
+                var awake = hour is >= 7 and < 23;
+                level = Math.Max(0, level - (awake ? 0.45 : 0.25) - rng.NextDouble() * 0.2);
+                if (level <= chargeBelow) charging = true;
+            }
+
+            readings.Add(new RingBatteryReading
+            {
+                TimestampMs = t.ToUnixTimeMilliseconds(),
+                Level = (int)Math.Round(level),
+                Charging = charging,
+                InCharger = charging,
+                UpdatedAt = now,
+            });
+        }
+
+        await ReplaceBatteryAsync(from, to, readings, ct);
+        return new BatterySyncResult(readings.Count);
+    }
+
+    /// <summary>
+    /// The incoming samples become the whole record for [from, to): a time series has no natural
+    /// "day" to upsert by, and a resync should drop samples Oura no longer reports.
+    /// </summary>
+    private async Task ReplaceBatteryAsync(DateTimeOffset from, DateTimeOffset to, List<RingBatteryReading> readings, CancellationToken ct)
+    {
+        var fromMs = from.ToUnixTimeMilliseconds();
+        var toMs = to.ToUnixTimeMilliseconds();
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.RingBatteryReadings
+            .Where(r => r.TimestampMs >= fromMs && r.TimestampMs < toMs)
+            .ExecuteDeleteAsync(ct);
+        db.RingBatteryReadings.AddRange(readings.Where(r => r.TimestampMs >= fromMs && r.TimestampMs < toMs));
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
     }
 
     /// <summary>Inserts new days and overwrites existing ones in place. Caller saves changes.</summary>

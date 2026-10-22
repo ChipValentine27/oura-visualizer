@@ -23,7 +23,11 @@ data you've synced for them.
 
 ## Health Visualizer
 
-The app has a single view, **Health Visualizer**: up to **4 metrics at once** as
+The app has two tabs, **Health Visualizer** and **[Battery Life](#battery-life)**,
+which share the date range and interval. The open tab is remembered in this
+browser.
+
+**Health Visualizer** shows up to **4 metrics at once** as
 grouped bars on one chart, on a shared percentage scale. It uses the date range
 (From/To and the 30D/90D/1Y/3Y presets) and the Daily/Weekly/Monthly/Yearly
 interval.
@@ -111,6 +115,40 @@ keeps the comparison honest; the tooltip and records show the raw values.
 - Hovering a bar darkens it, fades the other metrics, and highlights its row in
   the tooltip. Hovering the gap between bars shows the whole period.
 
+## Battery Life
+
+The **Battery Life** tab uses the same From/To dates and Daily/Weekly/Monthly/
+Yearly interval as the Health Visualizer, but syncs separately: **Sync battery**
+(at the right of the tab bar) pulls only ring battery data, and **Sync from
+Oura** never touches it.
+
+- Source: Oura API v2 `ring_battery_level`, a time series of samples
+  (`timestamp`, `level` 0–100%, `charging`, `in_charger`), requested in 7-day
+  windows and stored in the `RingBatteryReadings` table.
+- Only the battery % Oura reports is shown, plus its average, lowest and highest;
+  nothing else is derived. Everything is on a fixed 0–100% scale, and a gap of
+  more than 3 hours between readings breaks the line.
+- **Up to 31 days:** a line of the reported readings over time; the interval sets
+  where the time axis is labelled. Levels are whole percents, so a slow drain
+  arrives as stairs; to keep the line smooth, each short run of equal readings
+  is drawn at its middle reading (runs over 2 hours, real plateaus, keep their
+  first and last). Every plotted point is a real reading.
+- **Longer ranges:** a reading-by-reading line would be a solid smear, so each
+  period's average is drawn as a line over a band from its lowest to highest
+  reading. If the interval would give more than 120 periods (a year by day, say)
+  the chart steps up to the next coarser interval and says so.
+- Stats: the latest reading, and the average, lowest and highest reported level
+  in the range (over every reading, never the thinned set).
+- **Show table** lists the average, lowest and highest level and the reading
+  count for each period charted. Readings are grouped by your
+  local days (the browser's time zone), in the same calendar buckets as the
+  health metrics (ISO weeks, clipped at the range edges).
+- **Load demo battery** seeds a synthetic year of battery data up to now,
+  replacing what is stored for that time.
+- If Oura still answers battery requests with 401 after a token refresh, the
+  sync reports that the Oura app isn't permitted to read battery data, and the
+  connection is kept.
+
 ## Connecting your Oura data
 
 The app signs in to Oura with OAuth2 and manages tokens itself, so you never
@@ -129,6 +167,8 @@ paste an access token.
 3. Restart the API, click **Connect Oura**, and approve access on Oura's page.
 4. Pick a date range and click **Sync from Oura**. Syncs upsert by day, so
    re-syncing a range is safe.
+5. Ring battery syncs on its own: click **Sync battery** on the Battery Life
+   tab. It replaces the stored samples for the selected days.
 
 How tokens are handled:
 
@@ -145,8 +185,9 @@ How tokens are handled:
   stored tokens.
 
 Other settings in the `Oura` section: `Scopes` (default
-`daily heartrate spo2Daily`; reconnect after changing it; a sync
-skips, and reports, any collection the connection has no scope for) and `RedirectUri` (when empty, derived from the request as
+`daily heartrate spo2Daily ring_configuration`, the last for battery; reconnect
+after changing it; a health sync skips, and reports, any collection the
+connection has no scope for) and `RedirectUri` (when empty, derived from the request as
 `{scheme}://{host}/api/oura/callback`; set it for production to match what you
 registered).
 
@@ -162,6 +203,13 @@ registered).
 | POST | `/api/oura/disconnect` | Revoke and forget the Oura tokens |
 | POST | `/api/sync/oura?start=&end=` | Pull every supported collection from Oura (409 if not connected); `skipped` lists collections the connection has no scope for |
 | POST | `/api/sync/demo?start=&end=` | Seed synthetic data |
+| GET  | `/api/battery?start=&end=&interval=daily\|weekly\|monthly\|yearly&timeZone=` | Reported battery readings for the range (local days in `timeZone`, an IANA id), plus average/lowest/highest level for the range and per bucket; `includeReadings=false` returns only the stats and buckets |
+| POST | `/api/sync/battery?from=&to=` | Pull ring battery samples from Oura (separate from `/api/sync/oura`); 403 if Oura refuses battery access |
+| POST | `/api/sync/battery/demo?from=&to=` | Seed a synthetic battery trace (one sample every 30 minutes) |
+
+The battery sync routes take ISO 8601 instants with an offset
+(`2025-03-01T00:00:00-05:00`) because Oura serves battery as a time series; the
+client sends local midnights.
 
 Weeks are ISO weeks (Monday start). Buckets that straddle the chosen range are
 clipped to it, so compare partial periods with **Daily avg** rather than **Total**.
