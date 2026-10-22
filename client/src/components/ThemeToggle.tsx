@@ -1,6 +1,6 @@
 import { THEMES, useTheme } from '../theme'
 
-/** System / Light / Dark switch for the page header. */
+/** Light / Dark switch for the page header. */
 export function ThemeToggle() {
   const [theme, setTheme] = useTheme()
 
