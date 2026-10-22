@@ -162,8 +162,7 @@ public record OuraDailyActivity(
     [property: JsonPropertyName("resting_time")] int? RestingTime,
     [property: JsonPropertyName("non_wear_time")] int? NonWearTime,
     [property: JsonPropertyName("equivalent_walking_distance")] int? EquivalentWalkingDistance,
-    [property: JsonPropertyName("target_meters")] int? TargetMeters,
-    [property: JsonPropertyName("meters_to_target")] int? MetersToTarget);
+    [property: JsonPropertyName("target_meters")] int? TargetMeters);
 
 /// <summary>The daily_sleep document: a day and its 0–100 score.</summary>
 public record OuraDailyScoreDoc(

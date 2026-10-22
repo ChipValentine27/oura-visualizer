@@ -37,9 +37,6 @@ namespace OuraViz.Api.Data.Migrations
                     b.Property<int?>("MediumActivitySeconds")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int?>("MetersToTarget")
-                        .HasColumnType("INTEGER");
-
                     b.Property<int?>("NonWearSeconds")
                         .HasColumnType("INTEGER");
 

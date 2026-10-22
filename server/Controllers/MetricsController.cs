@@ -10,7 +10,7 @@ public enum Metric
 {
     // Activity (daily_activity)
     Steps, ActivityScore, HighActivityTime, MediumActivityTime, LowActivityTime, SedentaryTime, RestingTime,
-    NonWearTime, WalkingDistance, TargetMeters, MetersToTarget,
+    NonWearTime, WalkingDistance, TargetMeters,
 
     // Sleep (sleep periods, daily_sleep)
     Sleep, SleepScore, DeepSleep, LightSleep, RemSleep, AwakeTime, TimeInBed, Latency, Efficiency,
@@ -58,7 +58,6 @@ public class MetricsController(OuraDbContext db) : ControllerBase
         [Metric.NonWearTime] = Activity("seconds", a => a.NonWearSeconds),
         [Metric.WalkingDistance] = Activity("meters", a => a.EquivalentWalkingDistanceMeters),
         [Metric.TargetMeters] = Activity("meters", a => a.TargetMeters),
-        [Metric.MetersToTarget] = Activity("meters", a => a.MetersToTarget),
 
         [Metric.Sleep] = Sleep("seconds", s => s.TotalSleepSeconds),
         [Metric.SleepScore] = Score("score", s => s.SleepScore),

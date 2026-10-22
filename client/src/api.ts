@@ -13,7 +13,6 @@ export type MetricId =
   | 'nonWearTime'
   | 'walkingDistance'
   | 'targetMeters'
-  | 'metersToTarget'
   // Sleep
   | 'sleep'
   | 'sleepScore'

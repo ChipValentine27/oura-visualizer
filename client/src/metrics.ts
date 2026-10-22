@@ -269,7 +269,6 @@ const DEFINITIONS: MetricConfig[] = [
   metric('activityScore', 'Activity score', 'activity', 'score'),
   metric('walkingDistance', 'Walking distance', 'activity', 'meters'),
   metric('targetMeters', 'Activity target', 'activity', 'meters'),
-  metric('metersToTarget', 'Distance to target', 'activity', 'meters'),
   metric('highActivityTime', 'High activity', 'activity', 'duration', { plain: 'minutes' }),
   metric('mediumActivityTime', 'Medium activity', 'activity', 'duration', { plain: 'minutes' }),
   metric('lowActivityTime', 'Low activity', 'activity', 'duration'),

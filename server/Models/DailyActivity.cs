@@ -23,7 +23,6 @@ public class DailyActivity : IDailyRow
 
     public int? EquivalentWalkingDistanceMeters { get; set; }
     public int? TargetMeters { get; set; }
-    public int? MetersToTarget { get; set; }
 
     /// <summary>Oura's document id, or null for demo data.</summary>
     public string? OuraId { get; set; }

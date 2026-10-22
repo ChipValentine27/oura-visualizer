@@ -41,7 +41,7 @@ Metrics are grouped into four categories in the **Choose metrics** picker
 | | Temperature deviation, temperature trend (°C from baseline) | `daily_readiness` |
 | | High stress time, high recovery time (seconds) | `daily_stress.stress_high`, `recovery_high` |
 | Activity | Steps, activity score (0–100) | `daily_activity` |
-| | Walking distance, activity target, distance to target (meters) | `equivalent_walking_distance`, `target_meters`, `meters_to_target` |
+| | Walking distance, activity target (meters) | `equivalent_walking_distance`, `target_meters` |
 | | High/medium/low activity, sedentary, resting and non-wear time (seconds) | `daily_activity` |
 | Heart & breathing | Heart rate 24h average/low/high (bpm) | `heartrate` samples, by local day |
 | | Lowest, average and peak sleep heart rate (bpm) | `sleep.lowest_heart_rate`, `average_heart_rate`, max of `heart_rate.items` |

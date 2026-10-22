@@ -36,7 +36,6 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
                 NonWearSeconds = d.NonWearTime,
                 EquivalentWalkingDistanceMeters = d.EquivalentWalkingDistance,
                 TargetMeters = d.TargetMeters,
-                MetersToTarget = d.MetersToTarget,
                 OuraId = d.Id,
                 UpdatedAt = now,
             })
@@ -240,7 +239,6 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
                 NonWearSeconds = nonWear,
                 EquivalentWalkingDistanceMeters = walked,
                 TargetMeters = target,
-                MetersToTarget = Math.Max(0, target - walked),
                 UpdatedAt = now,
             });
 
@@ -356,7 +354,6 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
         to.NonWearSeconds = from.NonWearSeconds;
         to.EquivalentWalkingDistanceMeters = from.EquivalentWalkingDistanceMeters;
         to.TargetMeters = from.TargetMeters;
-        to.MetersToTarget = from.MetersToTarget;
         to.OuraId = from.OuraId;
         to.UpdatedAt = from.UpdatedAt;
     }
