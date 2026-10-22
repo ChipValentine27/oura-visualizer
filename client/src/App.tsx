@@ -8,20 +8,22 @@ import {
   type OuraStatus,
   type SeriesResponse,
 } from './api'
-import { isColorId, seriesColor, type ColorId } from './colors'
+import { COLORS, isColorId, seriesColor, type ColorId } from './colors'
 import { BatteryChart, chartInterval, MAX_READING_DAYS, showsReadings } from './components/BatteryChart'
 import { ColorPicker } from './components/ColorPicker'
 import { GoalInput } from './components/GoalInput'
+import { MetricPicker, type PickerGroup } from './components/MetricPicker'
 import {
-  formatPercent,
+  formatBar,
   OverlayChart,
   toOverlayPoints,
   type Baseline,
   type References,
   type VisibleSeries,
 } from './components/OverlayChart'
+import { ThemeToggle } from './components/ThemeToggle'
 import { addDays, bucketLabel, dayBounds, formatNumber, today } from './dates'
-import { MAX_VISIBLE_METRICS, METRIC_IDS, METRICS } from './metrics'
+import { CATEGORIES, MAX_VISIBLE_METRICS, METRIC_IDS, METRICS, UNITS, unitLabel, type UnitId } from './metrics'
 
 const INTERVALS: { value: Interval; label: string }[] = [
   { value: 'daily', label: 'Daily' },
@@ -42,6 +44,7 @@ const PRESETS: { label: string; days: number }[] = [
 const BASELINES: { value: Baseline; label: string }[] = [
   { value: 'goal', label: 'Daily goal' },
   { value: 'average', label: 'Average' },
+  { value: 'unit', label: 'Unit' },
 ]
 
 const byMetric = <T,>(value: (id: MetricId) => T) =>
@@ -80,12 +83,26 @@ function loadCustomGoals(): CustomGoals {
 type SeriesColors = Record<MetricId, ColorId>
 const COLORS_KEY = 'ouraviz.seriesColors'
 
-function loadSeriesColors(): SeriesColors {
-  const defaults = byMetric((id) => METRICS[id].defaultColor)
+/**
+ * There are more metrics than colors, so colors only need to differ among the metrics on the
+ * chart. Gives any shown metric that shares a color with an earlier one the first free color.
+ */
+function withDistinctColors(colors: SeriesColors, visible: VisibleSeries): SeriesColors {
+  const next = { ...colors }
+  const used = new Set<ColorId>()
+  for (const id of METRIC_IDS.filter((m) => visible[m])) {
+    if (used.has(next[id])) {
+      next[id] = [METRICS[id].defaultColor, ...COLORS.map((c) => c.id)].find((c) => !used.has(c))!
+    }
+    used.add(next[id])
+  }
+  return next
+}
+
+function loadSeriesColors(visible: VisibleSeries): SeriesColors {
   const stored = loadStored(COLORS_KEY)
-  const colors = byMetric((id) => (isColorId(stored[id]) ? (stored[id] as ColorId) : defaults[id]))
-  // Two metrics in one color would be unreadable; fall back rather than trust bad storage.
-  return new Set(Object.values(colors)).size === METRIC_IDS.length ? colors : defaults
+  const colors = byMetric((id) => (isColorId(stored[id]) ? (stored[id] as ColorId) : METRICS[id].defaultColor))
+  return withDistinctColors(colors, visible)
 }
 
 const VISIBLE_KEY = 'ouraviz.visibleMetrics'
@@ -116,7 +133,21 @@ function loadView(): View {
   }
 }
 
-type Series = Record<MetricId, SeriesResponse>
+/** Metrics fed by each optional Oura collection, for naming what a skipped collection leaves empty. */
+const COLLECTION_METRICS: Record<string, string[]> = {
+  daily_spo2: ['Blood oxygen (SpO₂)', 'Breathing disturbance'],
+  daily_stress: ['High stress time', 'High recovery time'],
+  heartrate: ['24h heart rate'],
+}
+
+type Series = Partial<Record<MetricId, SeriesResponse>>
+
+/** Loaded series for one date range and interval (the key); others load as metrics are shown. */
+interface SeriesCache {
+  key: string
+  interval: Interval
+  data: Series
+}
 
 export default function App() {
   const [range, setRange] = useState<DataRange | null>(null)
@@ -126,11 +157,10 @@ export default function App() {
   const [visible, setVisible] = useState<VisibleSeries>(loadVisible)
   const [baseline, setBaseline] = useState<Baseline>('average')
   const [customGoals, setCustomGoals] = useState<CustomGoals>(loadCustomGoals)
-  const [seriesColors, setSeriesColors] = useState<SeriesColors>(loadSeriesColors)
+  const [seriesColors, setSeriesColors] = useState<SeriesColors>(() => loadSeriesColors(loadVisible()))
   const [showTable, setShowTable] = useState(false)
-  const [data, setData] = useState<Series | null>(null)
+  const [series, setSeries] = useState<SeriesCache | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
   const [oura, setOura] = useState<OuraStatus | null>(null)
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -173,22 +203,35 @@ export default function App() {
       .catch((e: Error) => setError(e.message))
   }, [loadMeta])
 
-  // Every metric is small, so fetch them all together; toggling metrics is then instant.
+  // Fetch only the shown metrics, and only those not loaded yet for this range and interval.
+  // The previous range's series stay on screen until the new ones arrive.
+  const queryKey = `${start}|${end}|${interval}|${reloadKey}`
+  const shownKey = METRIC_IDS.filter((id) => visible[id]).join(',')
+  const isLoaded = (id: MetricId) => series?.key === queryKey && series.data[id] !== undefined
+  const loading = !error && start <= end && (shownKey.split(',') as MetricId[]).some((id) => !isLoaded(id))
   useEffect(() => {
     if (start > end) return
+    const have = series?.key === queryKey ? series.data : {}
+    const missing = shownKey.split(',').filter((id) => !have[id as MetricId]) as MetricId[]
+    if (missing.length === 0) return
     const ctrl = new AbortController()
-    setLoading(true)
-    Promise.all(METRIC_IDS.map((id) => api.series(id, start, end, interval, ctrl.signal)))
+    Promise.all(missing.map((id) => api.series(id, start, end, interval, ctrl.signal)))
       .then((responses) => {
-        setData(byMetric((id) => responses[METRIC_IDS.indexOf(id)]))
+        setSeries((prev) => ({
+          key: queryKey,
+          interval,
+          data: {
+            ...(prev?.key === queryKey ? prev.data : {}),
+            ...Object.fromEntries(missing.map((id, i) => [id, responses[i]])),
+          },
+        }))
         setError(null)
       })
       .catch((e: Error) => {
         if (e.name !== 'AbortError') setError(e.message)
       })
-      .finally(() => setLoading(false))
     return () => ctrl.abort()
-  }, [start, end, interval, reloadKey])
+  }, [queryKey, shownKey, series, start, end, interval])
 
   // Battery is fetched on its own, only while its tab is open, so syncing it never refetches the
   // health metrics and vice versa. It shares the date range and interval with the health view.
@@ -218,20 +261,28 @@ export default function App() {
     setStart(addDays(end, -(days - 1)))
   }
 
-  const toggleMetric = (id: MetricId) => {
-    setVisible((v) => {
-      const next = { ...v, [id]: !v[id] }
-      store(VISIBLE_KEY, next)
-      return next
-    })
-  }
-
   const setSeriesColor = (id: MetricId, color: ColorId) => {
     setSeriesColors((c) => {
       const next = { ...c, [id]: color }
       store(COLORS_KEY, next)
       return next
     })
+  }
+
+  const toggleMetric = (id: MetricId) => {
+    const next = { ...visible, [id]: !visible[id] }
+    setVisible(next)
+    store(VISIBLE_KEY, next)
+    // A metric joining the chart may share a color with one already on it.
+    const distinct = withDistinctColors(seriesColors, next)
+    if (distinct[id] !== seriesColors[id]) setSeriesColor(id, distinct[id])
+  }
+
+  /** Shows just this metric, as when Unit mode switches the chart to another unit. */
+  const showOnly = (id: MetricId) => {
+    const next = byMetric((m) => m === id)
+    setVisible(next)
+    store(VISIBLE_KEY, next)
   }
 
   const setCustomGoal = (id: MetricId, value: number | null) => {
@@ -287,7 +338,26 @@ export default function App() {
     return runAction('batteryDemo', () => api.seedBatteryDemo(from, to), reloadBattery)
   }
 
-  const hasAnyData =(range?.activityDays ?? 0) + (range?.sleepDays ?? 0) > 0
+  const syncOura = async () => {
+    const result = await api.syncOura(start, end)
+    if (result.skipped.length === 0) return
+    // Everything else synced; say which metrics are missing and why, since reconnecting alone
+    // doesn't help when the Oura app registration doesn't offer the scope.
+    const missing = result.skipped.flatMap((c) => COLLECTION_METRICS[c] ?? [c])
+    const granted = (await api.ouraStatus().catch(() => null))?.scope
+      ?.split(' ')
+      .map((s) => s.replace(/^extapi:/, ''))
+      .join(', ')
+    setNotice({
+      kind: 'success',
+      text:
+        `Synced. ${listOf(missing)} stay empty: Oura didn't give this app access to ${result.skipped.join(', ')}` +
+        (granted ? ` (your connection has: ${granted})` : '') +
+        '. Turn that data on for your app at cloud.ouraring.com/oauth/applications, then disconnect and connect Oura again.',
+    })
+  }
+
+  const hasAnyData = (range?.activityDays ?? 0) + (range?.sleepDays ?? 0) > 0
   const rangeInvalid = start > end
 
   return (
@@ -302,6 +372,7 @@ export default function App() {
           </p>
         </div>
         <div className="actions">
+          <ThemeToggle />
           <button
             className="btn"
             disabled={!!busy}
@@ -317,8 +388,8 @@ export default function App() {
               <button
                 className="btn btn-primary"
                 disabled={!!busy || rangeInvalid}
-                title={`Sync activity, sleep and scores for ${start} to ${end} from Oura`}
-                onClick={() => runAction('oura', () => api.syncOura(start, end))}
+                title={`Sync every metric for ${start} to ${end} from Oura`}
+                onClick={() => runAction('oura', syncOura)}
               >
                 {busy === 'oura' ? 'Syncing…' : 'Sync from Oura'}
               </button>
@@ -413,12 +484,13 @@ export default function App() {
       {rangeInvalid && <div className="error" role="alert">“From” must be on or before “To”.</div>}
 
       <div id="view-panel" role="tabpanel" aria-labelledby={`tab-${view}`} className="view-panel">
-        {view === 'health' && data && (
+        {view === 'health' && series && (
           <HealthView
-            data={data}
-            interval={data.steps.interval}
+            data={series.data}
+            interval={series.interval}
             visible={visible}
             onToggleMetric={toggleMetric}
+            onShowOnly={showOnly}
             baseline={baseline}
             onBaseline={setBaseline}
             customGoals={customGoals}
@@ -449,6 +521,7 @@ interface HealthViewProps {
   interval: Interval
   visible: VisibleSeries
   onToggleMetric: (id: MetricId) => void
+  onShowOnly: (id: MetricId) => void
   baseline: Baseline
   onBaseline: (b: Baseline) => void
   customGoals: CustomGoals
@@ -464,11 +537,32 @@ interface HealthViewProps {
 const listOf = (items: string[]) =>
   items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 
+const NOT_VS_GOAL = 'Clock times and temperature deviations can’t be compared to a daily goal. Switch “Compare to” to Average to chart them.'
+
+/** Why a selected metric of another unit sits out the chart in Unit mode. */
+const otherUnit = (unit: UnitId) =>
+  `In Unit mode the chart shows one unit at a time (${unitLabel(unit)} now). Pick a metric of another unit to switch to it.`
+
+const CATEGORY_GROUPS: PickerGroup[] = CATEGORIES.map((c) => ({
+  id: c.id,
+  label: c.label,
+  ids: METRIC_IDS.filter((id) => METRICS[id].category === c.id),
+}))
+
+// Unit mode is for comparing metrics that share a unit, so a unit with a single metric
+// (steps, breaths per minute, the breathing disturbance index) gets no tab.
+const UNIT_GROUPS: PickerGroup[] = UNITS.map((u) => ({
+  id: u.id,
+  label: u.label,
+  ids: METRIC_IDS.filter((id) => METRICS[id].unit === u.id),
+})).filter((g) => g.ids.length > 1)
+
 function HealthView({
   data,
   interval,
   visible,
   onToggleMetric,
+  onShowOnly,
   baseline,
   onBaseline,
   customGoals,
@@ -479,38 +573,74 @@ function HealthView({
   showTable,
   onToggleTable,
 }: HealthViewProps) {
-  const shown = METRIC_IDS.filter((id) => visible[id])
-  const means = byMetric((id) => data[id].averagePerDay)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const selected = METRIC_IDS.filter((id) => visible[id])
+  // Selected metrics whose data has arrived (a newly picked one joins once it loads).
+  const loaded = selected.filter((id) => data[id] !== undefined)
+  // In Unit mode the chart has one axis, so it takes the unit of the first selected metric.
+  const activeUnit = baseline === 'unit' && selected.length > 0 ? METRICS[selected[0]].unit : null
+  // Why a metric can't be on the chart right now: against a goal, clock times and temperatures
+  // can't be measured; in Unit mode, other units don't fit the axis. Selected ones stay
+  // selected but sit out the chart until the mode changes.
+  const sitOutReason = (id: MetricId) =>
+    baseline === 'goal' && METRICS[id].goal === null
+      ? NOT_VS_GOAL
+      : activeUnit !== null && METRICS[id].unit !== activeUnit
+        ? otherUnit(activeUnit)
+        : undefined
+  const drawn = loaded.filter((id) => sitOutReason(id) === undefined)
+  const means = byMetric((id) => data[id]?.averagePerDay ?? 0)
   // Until the user types a goal, a metric uses its default: the period average, or a fixed
-  // value (100 for the 0–100 scores).
+  // value (100 for the 0–100 scores and percentages).
   const goals = byMetric((id) => {
-    const fallback = METRICS[id].defaultGoal
+    const fallback = METRICS[id].goal?.defaultGoal ?? 'average'
     return customGoals[id] ?? (fallback === 'average' ? means[id] : fallback)
   })
   const references: References = baseline === 'goal' ? goals : means
   // At most a few thousand buckets, so recomputing on each render is cheap.
   const points = toOverlayPoints(
-    byMetric((id) => data[id].buckets),
-    shown,
+    byMetric((id) => data[id]?.buckets ?? []),
+    drawn,
     baseline,
     references,
   )
-  const noData = shown.every((id) => data[id].daysWithData === 0)
+  const noData = drawn.every((id) => data[id]!.daysWithData === 0)
   const perDay = interval !== 'daily'
-  const atMax = shown.length >= MAX_VISIBLE_METRICS
+  const atMax = selected.length >= MAX_VISIBLE_METRICS
+  // In Unit mode, picking a metric of another unit switches the chart to that unit: it replaces
+  // the metrics shown, since at least one must stay on and the two units can't share the axis.
+  const switchesUnit = (id: MetricId) => activeUnit !== null && !visible[id] && METRICS[id].unit !== activeUnit
+  const reasonFor = (id: MetricId) =>
+    visible[id]
+      ? selected.length === 1
+        ? 'At least one metric must be shown'
+        : undefined
+      : baseline === 'goal' && METRICS[id].goal === null
+        ? NOT_VS_GOAL
+        : switchesUnit(id)
+          ? undefined
+          : atMax
+            ? `Up to ${MAX_VISIBLE_METRICS} metrics at a time; turn one off first`
+            : undefined
   const colors = byMetric((id) => seriesColor(seriesColors[id]))
   const describe = (values: Record<MetricId, number>) =>
-    shown.map((id) => `${METRICS[id].formatValue(values[id])} ${METRICS[id].describeUnit}`).join(', ')
+    drawn.map((id) => `${METRICS[id].formatValue(values[id])} ${METRICS[id].describeUnit}`).join(', ')
+  // Clock times and temperatures are compared by difference, not ratio; say what 100% means.
+  const scales = [...new Set(drawn.map((id) => METRICS[id].offsetScale?.label).filter((l) => l !== undefined))]
+  const scaleNote =
+    baseline === 'average' && scales.length > 0
+      ? ` Clock times and temperatures show the difference from the average, where ±100% = ${listOf(scales)}.`
+      : ''
 
   return (
     <>
       <section className="stats stats-even" aria-label="Summary">
-        {shown.map((id) => (
+        {loaded.map((id) => (
           <Stat
             key={id}
             label={METRICS[id].statLabel}
-            value={METRICS[id].formatValue(data[id].averagePerDay)}
-            note={`${formatNumber(data[id].daysWithData)} ${METRICS[id].dayNoun} with data`}
+            value={data[id]!.daysWithData === 0 ? '—' : METRICS[id].formatValue(data[id]!.averagePerDay)}
+            note={`${formatNumber(data[id]!.daysWithData)} ${METRICS[id].dayNoun} with data`}
             swatch={colors[id].fill}
           />
         ))}
@@ -520,16 +650,24 @@ function HealthView({
         <div className="card-header">
           <div>
             <h2>
-              {listOf(shown.map((id) => METRICS[id].label))} vs. {baseline === 'goal' ? 'daily goal' : 'average'}, by{' '}
-              {UNIT[interval]}
+              {drawn.length === 0
+                ? 'Nothing to compare to a daily goal'
+                : baseline === 'unit'
+                  ? `${listOf(drawn.map((id) => METRICS[id].label))}, by ${UNIT[interval]}`
+                  : `${listOf(drawn.map((id) => METRICS[id].label))} vs. ${baseline === 'goal' ? 'daily goal' : 'average'}, by ${UNIT[interval]}`}
             </h2>
-            <p className="card-sub">
-              {baseline === 'goal'
-                ? `As a percentage of your daily goal (${describe(goals)})`
-                : `Above (+) or below (−) the average (mean) for the selected period (${describe(means)})`}
-              {perDay ? ', comparing per-day averages' : ''}
-              {shown.length > 1 ? ', so all share one scale.' : '.'}
-            </p>
+            {drawn.length > 0 && (
+              <p className="card-sub">
+                {baseline === 'goal'
+                  ? `As a percentage of your daily goal (${describe(goals)})`
+                  : baseline === 'average'
+                    ? `Above (+) or below (−) the average (mean) for the selected period (${describe(means)})`
+                    : `Actual values on a shared ${unitLabel(METRICS[drawn[0]].unit).toLowerCase()} axis`}
+                {perDay ? (baseline === 'unit' ? ', as per-day averages' : ', comparing per-day averages') : ''}
+                {drawn.length > 1 && baseline !== 'unit' ? ', so all share one scale.' : '.'}
+                {scaleNote}
+              </p>
+            )}
           </div>
           <div className="card-tools">
             <div className="segmented small" role="radiogroup" aria-label="Compare to">
@@ -545,36 +683,37 @@ function HealthView({
                 </button>
               ))}
             </div>
-            <button className="link" onClick={onToggleTable}>
-              {showTable ? 'Hide table' : 'Show table'}
+            <button
+              type="button"
+              className="link"
+              aria-expanded={pickerOpen}
+              aria-controls="metric-picker"
+              onClick={() => setPickerOpen((o) => !o)}
+            >
+              {pickerOpen ? 'Hide metrics' : 'Show metrics'}
+            </button>
+            <button type="button" className="link" aria-expanded={showTable} onClick={onToggleTable}>
+              {showTable ? 'Hide records' : 'Show records'}
             </button>
           </div>
         </div>
 
         <fieldset className="series-toggles">
-          <legend className="visually-hidden">Metrics shown on the chart, up to {MAX_VISIBLE_METRICS}</legend>
-          {METRIC_IDS.map((id) => {
+          <legend className="visually-hidden">Metrics on the chart, up to {MAX_VISIBLE_METRICS}</legend>
+          {selected.map((id) => {
             const m = METRICS[id]
-            const isLastOn = visible[id] && shown.length === 1
-            const blockedByMax = !visible[id] && atMax
+            const isLastOn = selected.length === 1
+            const sitsOut = sitOutReason(id)
             const takenBy = Object.fromEntries(
-              METRIC_IDS.filter((other) => other !== id).map((other) => [seriesColors[other], METRICS[other].label]),
+              selected.filter((other) => other !== id).map((other) => [seriesColors[other], METRICS[other].label]),
             )
             return (
-              <div key={id} className={`series-toggle ${visible[id] ? '' : 'is-off'}`}>
-                <label
-                  title={
-                    isLastOn
-                      ? 'At least one metric must be shown'
-                      : blockedByMax
-                        ? `Up to ${MAX_VISIBLE_METRICS} metrics at a time; turn one off first`
-                        : undefined
-                  }
-                >
+              <div key={id} className={`series-toggle ${sitsOut ? 'is-off' : ''}`}>
+                <label title={isLastOn ? 'At least one metric must be shown' : `Remove ${m.label} from the chart`}>
                   <input
                     type="checkbox"
-                    checked={visible[id]}
-                    disabled={isLastOn || blockedByMax}
+                    checked
+                    disabled={isLastOn}
                     onChange={() => onToggleMetric(id)}
                     style={{ accentColor: colors[id].fill }}
                   />
@@ -586,38 +725,78 @@ function HealthView({
                   takenBy={takenBy}
                   onChange={(color) => onSeriesColor(id, color)}
                 />
-                {baseline === 'goal' && visible[id] && (
-                  <GoalInput
-                    metric={m}
-                    goal={goals[id]}
-                    isCustom={customGoals[id] !== null}
-                    onChange={(value) => onCustomGoal(id, value)}
-                  />
+                {sitsOut && baseline === 'unit' && (
+                  <span className="goal-field goal-source" title={sitsOut}>
+                    Different unit
+                  </span>
                 )}
+                {baseline === 'goal' &&
+                  (m.goal ? (
+                    <GoalInput
+                      metric={m}
+                      config={m.goal}
+                      goal={goals[id]}
+                      isCustom={customGoals[id] !== null}
+                      onChange={(value) => onCustomGoal(id, value)}
+                    />
+                  ) : (
+                    <span className="goal-field goal-source" title={NOT_VS_GOAL}>
+                      Not compared to a goal
+                    </span>
+                  ))}
               </div>
             )
           })}
           <span className={`series-limit ${atMax ? 'is-at-max' : ''}`}>
-            {shown.length} of {MAX_VISIBLE_METRICS} max
+            {selected.length} of {MAX_VISIBLE_METRICS} max
           </span>
         </fieldset>
 
-        {noData ? (
-          <div className="empty">No data in this range.</div>
-        ) : (
-          <OverlayChart points={points} interval={interval} shown={shown} baseline={baseline} colors={colors} />
+        {pickerOpen && (
+          <MetricPicker
+            id="metric-picker"
+            groups={baseline === 'unit' ? UNIT_GROUPS : CATEGORY_GROUPS}
+            visible={visible}
+            colors={colors}
+            reasonFor={reasonFor}
+            tagFor={(id) =>
+              baseline !== 'unit' && METRICS[id].goal === null
+                ? { text: 'avg only', title: 'Not compared to a daily goal' }
+                : undefined
+            }
+            noteFor={(group) =>
+              baseline === 'goal' && group.ids.some((id) => METRICS[id].goal === null)
+                ? NOT_VS_GOAL
+                : activeUnit !== null && group.id !== activeUnit
+                  ? `Picking one of these switches the chart to ${group.label.toLowerCase()} and replaces the metrics shown.`
+                  : undefined
+            }
+            onToggle={(id) => (switchesUnit(id) ? onShowOnly(id) : onToggleMetric(id))}
+          />
         )}
 
-        {showTable && (
+        {drawn.length === 0 && selected.length > loaded.length ? (
+          <div className="empty">Loading…</div>
+        ) : drawn.length === 0 ? (
+          <div className="empty">{NOT_VS_GOAL}</div>
+        ) : noData ? (
+          <div className="empty">No data in this range.</div>
+        ) : (
+          <OverlayChart points={points} interval={interval} shown={drawn} baseline={baseline} colors={colors} />
+        )}
+
+        {showTable && drawn.length > 0 && (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Period</th>
-                  {shown.map((id) => (
+                  {drawn.map((id) => (
                     <Fragment key={id}>
                       <th className="num">{METRICS[id].rowLabel(perDay)}</th>
-                      <th className="num">{baseline === 'goal' ? '% of goal' : 'vs. average'}</th>
+                      {baseline !== 'unit' && (
+                        <th className="num">{baseline === 'goal' ? '% of goal' : 'vs. average'}</th>
+                      )}
                     </Fragment>
                   ))}
                 </tr>
@@ -626,7 +805,7 @@ function HealthView({
                 {points.map((p) => (
                   <tr key={p.start}>
                     <td>{bucketLabel(p.start, p.end, interval)}</td>
-                    {shown.map((id) => {
+                    {drawn.map((id) => {
                       const pct = p.pct[id] ?? null
                       const bucket = p.buckets[id]
                       return (
@@ -634,7 +813,9 @@ function HealthView({
                           <td className="num">
                             {pct === null || !bucket ? '—' : METRICS[id].formatValue(bucket.averagePerDay)}
                           </td>
-                          <td className="num">{pct === null ? '—' : formatPercent(pct, baseline)}</td>
+                          {baseline !== 'unit' && (
+                            <td className="num">{pct === null ? '—' : formatBar(id, pct, baseline)}</td>
+                          )}
                         </Fragment>
                       )
                     })}

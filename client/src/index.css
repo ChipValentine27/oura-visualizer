@@ -42,46 +42,45 @@
   --notice-ink: #1d5c1d;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --surface-0: #121211;
-    --surface-1: #1a1a19;
-    --border: #2e2e2c;
-    --grid: #2a2a28;
-    --axis: #45453f;
-    --hover-band: rgba(255, 255, 255, 0.06);
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted: #8f8e86;
-    /* Stepped for the dark surface; hover steps go lighter instead of darker. */
-    --color-blue: #3987e5;
-    --color-blue-active: #6da7ec;
-    --color-orange: #d95926;
-    --color-orange-active: #f08a5d;
-    --color-aqua: #199e70;
-    --color-aqua-active: #3cc392;
-    --color-yellow: #c98500;
-    --color-yellow-active: #e8a72a;
-    --color-magenta: #d55181;
-    --color-magenta-active: #e98aac;
-    --color-green: #008300;
-    --color-green-active: #22a822;
-    --color-violet: #9085e9;
-    --color-violet-active: #b3abf1;
-    --color-red: #e66767;
-    --color-red-active: #f09595;
-    --color-lime: #7f9d10;
-    --color-lime-active: #a0bf2e;
-    --color-cyan: #1a9bd0;
-    --color-cyan-active: #52b8e2;
-    --accent: #3987e5;
-    --accent-ink: #ffffff;
-    --error-bg: #3a1c1c;
-    --error-ink: #f2b0b0;
-    --notice-bg: #1c321c;
-    --notice-ink: #b4e0b4;
-  }
+/* Dark theme. data-theme is set before first paint by index.html and kept current by src/theme.ts. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --surface-0: #121211;
+  --surface-1: #1a1a19;
+  --border: #2e2e2c;
+  --grid: #2a2a28;
+  --axis: #45453f;
+  --hover-band: rgba(255, 255, 255, 0.06);
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8f8e86;
+  /* Stepped for the dark surface; hover steps go lighter instead of darker. */
+  --color-blue: #3987e5;
+  --color-blue-active: #6da7ec;
+  --color-orange: #d95926;
+  --color-orange-active: #f08a5d;
+  --color-aqua: #199e70;
+  --color-aqua-active: #3cc392;
+  --color-yellow: #c98500;
+  --color-yellow-active: #e8a72a;
+  --color-magenta: #d55181;
+  --color-magenta-active: #e98aac;
+  --color-green: #008300;
+  --color-green-active: #22a822;
+  --color-violet: #9085e9;
+  --color-violet-active: #b3abf1;
+  --color-red: #e66767;
+  --color-red-active: #f09595;
+  --color-lime: #7f9d10;
+  --color-lime-active: #a0bf2e;
+  --color-cyan: #1a9bd0;
+  --color-cyan-active: #52b8e2;
+  --accent: #3987e5;
+  --accent-ink: #ffffff;
+  --error-bg: #3a1c1c;
+  --error-ink: #f2b0b0;
+  --notice-bg: #1c321c;
+  --notice-ink: #b4e0b4;
 }
 
 * {
@@ -130,6 +129,7 @@ h2 {
 
 .actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -635,4 +635,93 @@ th {
 .btn-small {
   padding: 5px 12px;
   font-size: 0.9rem;
+}
+
+.metric-picker {
+  margin: 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-0);
+}
+.picker-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.picker-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.picker-tabs button:hover {
+  color: var(--text-primary);
+}
+.picker-tabs button.selected {
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
+}
+.picker-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--text-primary);
+  color: var(--surface-1);
+  font-size: 0.72rem;
+  line-height: 18px;
+  text-align: center;
+}
+.picker-panel {
+  padding: 10px 12px 12px;
+}
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 4px 16px;
+}
+.picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+.picker-option:hover:not(:has(input:disabled)) {
+  background: var(--hover-band);
+}
+.picker-option:has(input:disabled) {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.picker-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.picker-option input {
+  margin: 0;
+  width: 15px;
+  height: 15px;
+}
+.picker-tag {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.picker-note {
+  margin: 10px 6px 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }

@@ -8,6 +8,7 @@ public class OuraDbContext(DbContextOptions<OuraDbContext> options) : DbContext(
     public DbSet<DailyActivity> DailyActivities => Set<DailyActivity>();
     public DbSet<DailySleep> DailySleep => Set<DailySleep>();
     public DbSet<DailyScore> DailyScores => Set<DailyScore>();
+    public DbSet<DailyHealth> DailyHealth => Set<DailyHealth>();
     public DbSet<RingBatteryReading> RingBatteryReadings => Set<RingBatteryReading>();
     public DbSet<OuraToken> OuraTokens => Set<OuraToken>();
 
@@ -21,6 +22,7 @@ public class OuraDbContext(DbContextOptions<OuraDbContext> options) : DbContext(
 
         modelBuilder.Entity<DailySleep>(e => e.HasKey(x => x.Day));
         modelBuilder.Entity<DailyScore>(e => e.HasKey(x => x.Day));
+        modelBuilder.Entity<DailyHealth>(e => e.HasKey(x => x.Day));
         modelBuilder.Entity<RingBatteryReading>(e =>
         {
             e.HasKey(x => x.TimestampMs);
