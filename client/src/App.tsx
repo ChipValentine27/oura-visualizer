@@ -7,6 +7,7 @@ import {
   type MetricId,
   type OuraStatus,
   type SeriesResponse,
+  type Tag,
 } from './api'
 import { COLORS, isColorId, seriesColor, type ColorId } from './colors'
 import { BatteryChart, chartInterval, MAX_READING_DAYS, showsReadings } from './components/BatteryChart'
@@ -170,6 +171,8 @@ export default function App() {
   const [batteryReloadKey, setBatteryReloadKey] = useState(0)
   const [showBatteryTable, setShowBatteryTable] = useState(false)
   const [view, setView] = useState<View>(loadView)
+  const [tags, setTags] = useState<Tag[]>([])
+  const [tagsReloadKey, setTagsReloadKey] = useState(0)
 
   const loadMeta = useCallback(async () => {
     const [r, s] = await Promise.all([api.range(), api.ouraStatus()])
@@ -252,6 +255,20 @@ export default function App() {
     return () => ctrl.abort()
   }, [view, start, end, interval, batteryReloadKey])
 
+  // Tags load with the health view, for its tooltips. They have their own sync, so syncing them
+  // never refetches the metrics; demo data (reloadKey) includes tags, so it reloads them too.
+  useEffect(() => {
+    if (view !== 'health' || start > end) return
+    const ctrl = new AbortController()
+    api
+      .tags(start, end, ctrl.signal)
+      .then(setTags)
+      .catch((e: Error) => {
+        if (e.name !== 'AbortError') setError(e.message)
+      })
+    return () => ctrl.abort()
+  }, [view, start, end, reloadKey, tagsReloadKey])
+
   const selectView = (next: View) => {
     setView(next)
     store(VIEW_KEY, next)
@@ -331,6 +348,22 @@ export default function App() {
         })
       },
       reloadBattery,
+    )
+
+  const syncTags = () =>
+    runAction(
+      'tags',
+      async () => {
+        const { tags } = await api.syncTags(start, end)
+        setNotice({
+          kind: 'success',
+          text:
+            tags === 0
+              ? `Oura returned no tags for ${start} to ${end}.`
+              : `Synced ${formatNumber(tags)} ${tags === 1 ? 'tag' : 'tags'} for ${start} to ${end}. Hover the chart to see them.`,
+        })
+      },
+      () => setTagsReloadKey((k) => k + 1),
     )
 
   const seedBatteryDemo = () => {
@@ -430,6 +463,19 @@ export default function App() {
             {v.label}
           </button>
         ))}
+        {view === 'health' && (
+          // Tags sync on its own too: they need a scope of their own.
+          <div className="actions tab-actions">
+            <button
+              className="btn btn-small btn-primary"
+              disabled={!!busy || rangeInvalid || !oura?.connected}
+              title={oura?.connected ? `Sync the tags you added in the Oura app for ${start} to ${end}` : 'Connect Oura first'}
+              onClick={syncTags}
+            >
+              {busy === 'tags' ? 'Syncing…' : 'Sync tags'}
+            </button>
+          </div>
+        )}
         {view === 'battery' && (
           // Battery syncs on its own, apart from "Sync from Oura" in the page header.
           <div className="actions tab-actions">
@@ -488,6 +534,7 @@ export default function App() {
           <HealthView
             data={series.data}
             interval={series.interval}
+            tags={tags}
             visible={visible}
             onToggleMetric={toggleMetric}
             onShowOnly={showOnly}
@@ -519,6 +566,8 @@ export default function App() {
 interface HealthViewProps {
   data: Series
   interval: Interval
+  /** Tags in the selected range, listed in the tooltip of each bar they fall in. */
+  tags: Tag[]
   visible: VisibleSeries
   onToggleMetric: (id: MetricId) => void
   onShowOnly: (id: MetricId) => void
@@ -560,6 +609,7 @@ const UNIT_GROUPS: PickerGroup[] = UNITS.map((u) => ({
 function HealthView({
   data,
   interval,
+  tags,
   visible,
   onToggleMetric,
   onShowOnly,
@@ -782,7 +832,14 @@ function HealthView({
         ) : noData ? (
           <div className="empty">No data in this range.</div>
         ) : (
-          <OverlayChart points={points} interval={interval} shown={drawn} baseline={baseline} colors={colors} />
+          <OverlayChart
+            points={points}
+            interval={interval}
+            shown={drawn}
+            baseline={baseline}
+            colors={colors}
+            tags={tags}
+          />
         )}
 
         {showTable && drawn.length > 0 && (

@@ -10,9 +10,9 @@ import {
   YAxis,
   type TooltipContentProps,
 } from 'recharts'
-import type { Bucket, Interval, MetricId } from '../api'
+import type { Bucket, Interval, MetricId, Tag } from '../api'
 import type { SeriesColor } from '../colors'
-import { bucketLabel, parseDay, tickLabel } from '../dates'
+import { addDays, bucketLabel, parseDay, tickLabel } from '../dates'
 import { formatSignedPercent, METRICS, percentFromMean, percentOfGoal, unitLabel, type UnitId } from '../metrics'
 
 /**
@@ -75,6 +75,36 @@ export const formatPercent = (pct: number, baseline: Baseline) =>
 export const formatBar = (id: MetricId, value: number, baseline: Baseline) =>
   baseline === 'unit' ? METRICS[id].formatValue(value) : formatPercent(value, baseline)
 
+/** One tag name in a period, and on how many of the period's days it was logged. */
+export interface TagSummary {
+  label: string
+  days: number
+  /** Comments on the tag's entries in the period, without repeats. */
+  comments: string[]
+}
+
+/**
+ * The tags logged during [start, end], most frequent first. A tag spanning several days counts
+ * each of its days in the period; the same tag twice on one day counts that day once.
+ */
+export function summarizeTags(tags: Tag[], start: string, end: string): TagSummary[] {
+  const byLabel = new Map<string, { days: Set<string>; comments: Set<string> }>()
+  for (const t of tags) {
+    if (t.startDay > end || t.endDay < start) continue
+    const entry = byLabel.get(t.label) ?? { days: new Set(), comments: new Set() }
+    byLabel.set(t.label, entry)
+    const last = t.endDay < end ? t.endDay : end
+    for (let d = t.startDay > start ? t.startDay : start; d <= last; d = addDays(d, 1)) entry.days.add(d)
+    if (t.comment?.trim()) entry.comments.add(t.comment.trim())
+  }
+  return [...byLabel]
+    .map(([label, e]) => ({ label, days: e.days.size, comments: [...e.comments] }))
+    .sort((a, b) => b.days - a.days || a.label.localeCompare(b.label))
+}
+
+/** Tooltip rows before the rest are folded into "+N more", so it stays inside the chart. */
+const MAX_TAG_ROWS = 6
+
 const DIMMED_OPACITY = 0.3
 const NICE_STEPS = [5, 10, 20, 25, 50, 100, 200]
 
@@ -126,6 +156,8 @@ interface Props {
   shown: MetricId[]
   baseline: Baseline
   colors: Record<MetricId, SeriesColor>
+  /** Tags in the range; the tooltip lists those logged during the hovered period. */
+  tags: Tag[]
 }
 
 /**
@@ -137,7 +169,7 @@ interface Props {
  * Hovering a bar emphasizes its metric: that bar darkens, the other metrics fade across the
  * chart, and the tooltip highlights the matching row.
  */
-export function OverlayChart({ points, interval, shown, baseline, colors }: Props) {
+export function OverlayChart({ points, interval, shown, baseline, colors, tags }: Props) {
   const [hovered, setHovered] = useState<MetricId | null>(null)
 
   const first = points[0]?.start
@@ -192,6 +224,7 @@ export function OverlayChart({ points, interval, shown, baseline, colors }: Prop
               hovered={hovered}
               baseline={baseline}
               colors={colors}
+              tags={tags}
             />
           )}
           isAnimationActive={false}
@@ -252,16 +285,20 @@ function OverlayTooltip({
   hovered,
   baseline,
   colors,
+  tags,
 }: TooltipContentProps & {
   interval: Interval
   shown: MetricId[]
   hovered: MetricId | null
   baseline: Baseline
   colors: Record<MetricId, SeriesColor>
+  tags: Tag[]
 }) {
   if (!active || !payload?.length) return null
   const p = payload[0].payload as OverlayPoint
   const perDay = interval !== 'daily'
+  const tagSummary = summarizeTags(tags, p.start, p.end)
+  const hiddenTags = tagSummary.length - MAX_TAG_ROWS
 
   return (
     <div className="tooltip" role="status">
@@ -287,6 +324,28 @@ function OverlayTooltip({
             : `Actual values, ${unitLabel(METRICS[shown[0]].unit).toLowerCase()} axis`}
         {perDay ? ', per-day averages' : ''}
       </div>
+      {tagSummary.length > 0 && (
+        <div className="tooltip-tags">
+          <div className="tooltip-tags-title">Tags</div>
+          {tagSummary.slice(0, MAX_TAG_ROWS).map((t) => (
+            <div key={t.label} className="tooltip-tag">
+              <span className="tooltip-tag-label">
+                {t.label}
+                {/* A single day has room for what was noted; longer periods just count days. */}
+                {!perDay && t.comments.length > 0 && (
+                  <span className="tooltip-tag-comment"> · {t.comments.join('; ')}</span>
+                )}
+              </span>
+              {perDay && (
+                <span className="tooltip-tag-days">
+                  {t.days} {t.days === 1 ? 'day' : 'days'}
+                </span>
+              )}
+            </div>
+          ))}
+          {hiddenTags > 0 && <div className="tooltip-muted">+{hiddenTags} more</div>}
+        </div>
+      )}
     </div>
   )
 }

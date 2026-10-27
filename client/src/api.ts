@@ -141,6 +141,23 @@ export interface BatterySyncResult {
   readings: number
 }
 
+/** A tag added in the Oura app. Covers startDay through endDay (equal for a one-day tag). */
+export interface Tag {
+  id: string
+  /** The custom tag's name, or Oura's tag code made readable ("Late meal"). */
+  label: string
+  code: string | null
+  comment: string | null
+  startDay: string
+  endDay: string
+  startTime: string | null
+  endTime: string | null
+}
+
+export interface TagSyncResult {
+  tags: number
+}
+
 export interface OuraStatus {
   configured: boolean
   connected: boolean
@@ -195,6 +212,11 @@ export const api = {
   /** `from`/`to` are ISO instants (`dayBounds` in dates.ts): Oura serves battery as a time series. */
   syncBattery: (from: string, to: string) =>
     request<BatterySyncResult>(`/api/sync/battery?${new URLSearchParams({ from, to })}`, { method: 'POST' }),
+  /** Tags covering any day in [start, end]. */
+  tags: (start: string, end: string, signal?: AbortSignal) =>
+    request<Tag[]>(`/api/tags?${new URLSearchParams({ start, end })}`, { signal }),
+  syncTags: (start: string, end: string) =>
+    request<TagSyncResult>(`/api/sync/tags?${new URLSearchParams({ start, end })}`, { method: 'POST' }),
   seedBatteryDemo: (from: string, to: string) =>
     request<BatterySyncResult>(`/api/sync/battery/demo?${new URLSearchParams({ from, to })}`, { method: 'POST' }),
 }

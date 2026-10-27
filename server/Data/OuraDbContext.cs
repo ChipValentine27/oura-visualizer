@@ -10,6 +10,7 @@ public class OuraDbContext(DbContextOptions<OuraDbContext> options) : DbContext(
     public DbSet<DailyScore> DailyScores => Set<DailyScore>();
     public DbSet<DailyHealth> DailyHealth => Set<DailyHealth>();
     public DbSet<RingBatteryReading> RingBatteryReadings => Set<RingBatteryReading>();
+    public DbSet<OuraTag> Tags => Set<OuraTag>();
     public DbSet<OuraToken> OuraTokens => Set<OuraToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -27,6 +28,13 @@ public class OuraDbContext(DbContextOptions<OuraDbContext> options) : DbContext(
         {
             e.HasKey(x => x.TimestampMs);
             e.Property(x => x.TimestampMs).ValueGeneratedNever();
+        });
+
+        modelBuilder.Entity<OuraTag>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.HasIndex(x => x.StartDay);
         });
 
         modelBuilder.Entity<OuraToken>(e =>

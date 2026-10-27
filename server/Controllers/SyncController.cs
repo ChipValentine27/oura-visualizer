@@ -70,6 +70,37 @@ public class SyncController(OuraSyncService sync) : ControllerBase
         }
     }
 
+    /// <summary>
+    /// POST /api/sync/tags?start=2025-01-01&amp;end=2025-12-31 pulls the tags that start in the range
+    /// from the Oura API. Separate from /oura because tags need their own ("tag") scope.
+    /// </summary>
+    [HttpPost("tags")]
+    public async Task<IActionResult> SyncTags([FromQuery] DateOnly start, [FromQuery] DateOnly end, CancellationToken ct)
+    {
+        if (end < start) return BadRequest("end must be on or after start.");
+
+        try
+        {
+            return Ok(await sync.SyncTagsFromOuraAsync(start, end, ct));
+        }
+        catch (Exception ex) when (ex is OuraAccessDeniedException
+                                   || (ex is HttpRequestException h && h.StatusCode == System.Net.HttpStatusCode.Forbidden))
+        {
+            return Problem(
+                "Oura refused access to tags. Your connection needs the “tag” scope: turn on tags for your app "
+                + "at cloud.ouraring.com/oauth/applications, then Disconnect and Connect Oura again.",
+                statusCode: 403, title: "Tags not permitted");
+        }
+        catch (OuraNotConnectedException ex)
+        {
+            return Problem(ex.Message, statusCode: 409, title: "Oura not connected");
+        }
+        catch (HttpRequestException ex)
+        {
+            return Problem($"Oura API request failed: {ex.Message}", statusCode: 502);
+        }
+    }
+
     /// <summary>POST /api/sync/battery/demo?from=...&amp;to=... fills [from, to) with a synthetic battery trace.</summary>
     [HttpPost("battery/demo")]
     public async Task<IActionResult> SeedBatteryDemo([FromQuery] DateTimeOffset from, [FromQuery] DateTimeOffset to, CancellationToken ct)
