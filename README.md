@@ -114,6 +114,14 @@ keeps the comparison honest; the tooltip and records show the raw values.
   already in use gets the first free one. Choices are remembered in this browser.
 - Hovering a bar darkens it, fades the other metrics, and highlights its row in
   the tooltip. Hovering the gap between bars shows the whole period.
+- The tooltip also lists the **tags** you logged in the Oura app during the
+  hovered period. On weekly, monthly and yearly bars each tag shows on how many
+  of the period's days it was logged (most frequent first, up to 6, then
+  "+N more"); on a daily bar it shows the tag's comment. **Sync tags** (at the
+  right of the tab bar) pulls them from Oura's `enhanced_tag` collection for the
+  From/To range into the `Tags` table, replacing tags stored for that range.
+  It needs the `tag` scope: after upgrading, Disconnect and Connect Oura again.
+  Demo data includes demo tags.
 
 ## Battery Life
 
@@ -185,7 +193,8 @@ How tokens are handled:
   stored tokens.
 
 Other settings in the `Oura` section: `Scopes` (default
-`daily heartrate spo2Daily ring_configuration`, the last for battery; reconnect
+`daily heartrate spo2Daily ring_configuration tag`, `ring_configuration` for
+battery and `tag` for tags; reconnect
 after changing it; a health sync skips, and reports, any collection the
 connection has no scope for) and `RedirectUri` (when empty, derived from the request as
 `{scheme}://{host}/api/oura/callback`; set it for production to match what you
@@ -202,7 +211,9 @@ registered).
 | GET  | `/api/oura/callback` | OAuth redirect target; returns to `/?oura=connected\|error` |
 | POST | `/api/oura/disconnect` | Revoke and forget the Oura tokens |
 | POST | `/api/sync/oura?start=&end=` | Pull every supported collection from Oura (409 if not connected); `skipped` lists collections the connection has no scope for |
-| POST | `/api/sync/demo?start=&end=` | Seed synthetic data |
+| POST | `/api/sync/demo?start=&end=` | Seed synthetic data (including tags) |
+| GET  | `/api/tags?start=&end=` | Stored tags covering any day in the range, with a readable `label` (custom name, or the tag code made readable) |
+| POST | `/api/sync/tags?start=&end=` | Pull the tags that start in the range from Oura (separate from `/api/sync/oura`); 403 if the connection lacks the `tag` scope |
 | GET  | `/api/battery?start=&end=&interval=daily\|weekly\|monthly\|yearly&timeZone=` | Reported battery readings for the range (local days in `timeZone`, an IANA id), plus average/lowest/highest level for the range and per bucket; `includeReadings=false` returns only the stats and buckets |
 | POST | `/api/sync/battery?from=&to=` | Pull ring battery samples from Oura (separate from `/api/sync/oura`); 403 if Oura refuses battery access |
 | POST | `/api/sync/battery/demo?from=&to=` | Seed a synthetic battery trace (one sample every 30 minutes) |

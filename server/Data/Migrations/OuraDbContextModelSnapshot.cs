@@ -193,6 +193,43 @@ namespace OuraViz.Api.Data.Migrations
                     b.ToTable("DailySleep");
                 });
 
+            modelBuilder.Entity("OuraViz.Api.Models.OuraTag", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Comment")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CustomName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("EndDay")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("EndTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly>("StartDay")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("StartTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TagTypeCode")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartDay");
+
+                    b.ToTable("Tags");
+                });
+
             modelBuilder.Entity("OuraViz.Api.Models.OuraToken", b =>
                 {
                     b.Property<int>("Id")

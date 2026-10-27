@@ -56,6 +56,14 @@ public class OuraClient(HttpClient http, OuraTokenService tokens, ILogger<OuraCl
         return results;
     }
 
+    /// <summary>
+    /// Tags the user added in the Oura app that start in [start, end]. Needs the "tag" scope; like
+    /// battery it is synced on its own and not optional, so a missing scope surfaces as
+    /// <see cref="OuraAccessDeniedException"/> (or a 403) rather than an empty result.
+    /// </summary>
+    public Task<List<OuraEnhancedTag>> GetEnhancedTagsAsync(DateOnly start, DateOnly end, CancellationToken ct) =>
+        GetCollectionAsync<OuraEnhancedTag>("enhanced_tag", start, end, optional: false, ct);
+
     /// <summary>Oura caps how much time-series data one request may cover; stay well inside it.</summary>
     private static readonly TimeSpan BatteryWindow = TimeSpan.FromDays(7);
 
@@ -257,6 +265,17 @@ public record OuraDailyStress(
     [property: JsonPropertyName("day")] DateOnly Day,
     [property: JsonPropertyName("stress_high")] int? StressHigh,
     [property: JsonPropertyName("recovery_high")] int? RecoveryHigh);
+
+/// <summary>One enhanced_tag document. End fields are null for a tag on a single moment or day.</summary>
+public record OuraEnhancedTag(
+    [property: JsonPropertyName("id")] string Id,
+    [property: JsonPropertyName("tag_type_code")] string? TagTypeCode,
+    [property: JsonPropertyName("start_time")] DateTimeOffset? StartTime,
+    [property: JsonPropertyName("end_time")] DateTimeOffset? EndTime,
+    [property: JsonPropertyName("start_day")] DateOnly StartDay,
+    [property: JsonPropertyName("end_day")] DateOnly? EndDay,
+    [property: JsonPropertyName("comment")] string? Comment,
+    [property: JsonPropertyName("custom_name")] string? CustomName);
 
 public record OuraHeartRateSample(
     [property: JsonPropertyName("bpm")] int Bpm,

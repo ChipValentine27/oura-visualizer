@@ -601,6 +601,30 @@ th {
 .tooltip-row.is-dimmed {
   opacity: 0.5;
 }
+.tooltip-tags {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  max-width: 320px;
+}
+.tooltip-tags-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.tooltip-tag {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-secondary);
+}
+.tooltip-tag-comment {
+  color: var(--text-muted);
+}
+.tooltip-tag-days {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .tooltip-pct {
   text-align: right;
   color: var(--text-muted);

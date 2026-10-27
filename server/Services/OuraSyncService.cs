@@ -12,6 +12,8 @@ public record SyncResult(int ActivityDays, int SleepDays, int ScoreDays, int Hea
 
 public record BatterySyncResult(int Readings);
 
+public record TagSyncResult(int Tags);
+
 public class OuraSyncService(OuraDbContext db, OuraClient oura)
 {
     // Oura also records "rest" periods (lying down awake) and soft-deleted periods; neither is sleep.
@@ -182,6 +184,49 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
     }
 
     /// <summary>
+    /// Pulls the tags that start in [start, end] from Oura. Kept apart from
+    /// <see cref="SyncFromOuraAsync"/> since it needs its own scope.
+    /// </summary>
+    public async Task<TagSyncResult> SyncTagsFromOuraAsync(DateOnly start, DateOnly end, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var tags = (await oura.GetEnhancedTagsAsync(start, end, ct))
+            .DistinctBy(t => t.Id)
+            .Select(t => new OuraTag
+            {
+                Id = t.Id,
+                TagTypeCode = t.TagTypeCode,
+                CustomName = t.CustomName,
+                Comment = t.Comment,
+                StartDay = t.StartDay,
+                EndDay = t.EndDay,
+                StartTime = t.StartTime,
+                EndTime = t.EndTime,
+                UpdatedAt = now,
+            })
+            .ToList();
+
+        await ReplaceTagsAsync(start, end, tags, ct);
+        return new TagSyncResult(tags.Count);
+    }
+
+    /// <summary>
+    /// The incoming tags become the whole record of tags starting in [start, end], so a tag
+    /// deleted in the Oura app disappears on the next sync.
+    /// </summary>
+    private async Task ReplaceTagsAsync(DateOnly start, DateOnly end, List<OuraTag> tags, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var ids = tags.Select(t => t.Id).ToList();
+        await db.Tags
+            .Where(t => (t.StartDay >= start && t.StartDay <= end) || ids.Contains(t.Id))
+            .ExecuteDeleteAsync(ct);
+        db.Tags.AddRange(tags);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
     /// Seconds from local midnight on <paramref name="day"/> to the wall-clock time of
     /// <paramref name="at"/> in its own offset (negative the evening before, past 86,400 the day after).
     /// </summary>
@@ -343,8 +388,44 @@ public class OuraSyncService(OuraDbContext db, OuraClient oura)
         await UpsertAsync(db.DailyScores, scores, CopyScore, ct);
         await UpsertAsync(db.DailyHealth, health, CopyHealth, ct);
         await db.SaveChangesAsync(ct);
+        await ReplaceTagsAsync(start, end, DemoTags(start, end, now), ct);
 
         return new SyncResult(activity.Count, sleep.Count, scores.Count, health.Count, []);
+    }
+
+    /// <summary>
+    /// A sprinkling of the tags people commonly log: weekend drinks, the occasional late meal or
+    /// sick spell (which spans days), and now and then a custom tag with a comment.
+    /// </summary>
+    private static List<OuraTag> DemoTags(DateOnly start, DateOnly end, DateTimeOffset now)
+    {
+        var rng = new Random(31);
+        var tags = new List<OuraTag>();
+        OuraTag Tag(DateOnly day, string code, string? customName = null, string? comment = null, DateOnly? endDay = null) =>
+            new()
+            {
+                Id = $"demo-{day:yyyyMMdd}-{tags.Count}",
+                TagTypeCode = code,
+                CustomName = customName,
+                Comment = comment,
+                StartDay = day,
+                EndDay = endDay,
+                UpdatedAt = now,
+            };
+
+        for (var day = start; day <= end; day = day.AddDays(1))
+        {
+            var weekend = day.DayOfWeek is DayOfWeek.Friday or DayOfWeek.Saturday;
+            if (rng.NextDouble() < (weekend ? 0.45 : 0.08)) tags.Add(Tag(day, "tag_generic_alcohol"));
+            if (rng.NextDouble() < 0.12) tags.Add(Tag(day, "tag_generic_late_meal"));
+            if (rng.NextDouble() < 0.1) tags.Add(Tag(day, "tag_generic_caffeine"));
+            if (rng.NextDouble() < 0.06) tags.Add(Tag(day, "tag_generic_meditation"));
+            if (rng.NextDouble() < 0.01)
+                tags.Add(Tag(day, "tag_generic_sick", endDay: day.AddDays(rng.Next(2, 5))));
+            if (rng.NextDouble() < 0.02)
+                tags.Add(Tag(day, "custom", customName: "Travel", comment: "Different time zone"));
+        }
+        return tags;
     }
 
     /// <summary>
