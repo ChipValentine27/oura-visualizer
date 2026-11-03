@@ -22,8 +22,10 @@ import {
   type References,
   type VisibleSeries,
 } from './components/OverlayChart'
+import { InsightsView } from './components/InsightsView'
 import { ThemeToggle } from './components/ThemeToggle'
 import { addDays, bucketLabel, dayBounds, formatNumber, today } from './dates'
+import { HISTORY_DAYS, LONGEST_TIMEFRAME, MAX_INSIGHT_METRICS } from './insights'
 import { CATEGORIES, MAX_VISIBLE_METRICS, METRIC_IDS, METRICS, UNITS, unitLabel, type UnitId } from './metrics'
 
 const INTERVALS: { value: Interval; label: string }[] = [
@@ -117,10 +119,11 @@ function loadVisible(): VisibleSeries {
     : byMetric((id) => id === 'steps' || id === 'sleep')
 }
 
-type View = 'health' | 'battery'
+type View = 'health' | 'insights' | 'battery'
 
 const VIEWS: { value: View; label: string }[] = [
   { value: 'health', label: 'Health Visualizer' },
+  { value: 'insights', label: 'Insights' },
   { value: 'battery', label: 'Battery Life' },
 ]
 
@@ -128,10 +131,23 @@ const VIEW_KEY = 'ouraviz.view'
 
 function loadView(): View {
   try {
-    return localStorage.getItem(VIEW_KEY) === '"battery"' ? 'battery' : 'health'
+    const stored = JSON.parse(localStorage.getItem(VIEW_KEY) ?? 'null')
+    return VIEWS.some((v) => v.value === stored) ? stored : 'health'
   } catch {
     return 'health'
   }
+}
+
+const INSIGHT_METRICS_KEY = 'ouraviz.insightMetrics'
+
+/** The Insights tab picks its own few metrics, apart from the chart's. */
+function loadInsightMetrics(): VisibleSeries {
+  const stored = loadStored(INSIGHT_METRICS_KEY)
+  const picked = byMetric((id) => stored[id] === true)
+  const count = METRIC_IDS.filter((id) => picked[id]).length
+  return count >= 1 && count <= MAX_INSIGHT_METRICS
+    ? picked
+    : byMetric((id) => id === 'readinessScore' || id === 'sleepAverageHrv' || id === 'sleep')
 }
 
 /** Metrics fed by each optional Oura collection, for naming what a skipped collection leaves empty. */
@@ -173,6 +189,8 @@ export default function App() {
   const [view, setView] = useState<View>(loadView)
   const [tags, setTags] = useState<Tag[]>([])
   const [tagsReloadKey, setTagsReloadKey] = useState(0)
+  const [insightMetrics, setInsightMetrics] = useState<VisibleSeries>(loadInsightMetrics)
+  const [insightSeries, setInsightSeries] = useState<SeriesCache | null>(null)
 
   const loadMeta = useCallback(async () => {
     const [r, s] = await Promise.all([api.range(), api.ouraStatus()])
@@ -255,19 +273,58 @@ export default function App() {
     return () => ctrl.abort()
   }, [view, start, end, interval, batteryReloadKey])
 
-  // Tags load with the health view, for its tooltips. They have their own sync, so syncing them
-  // never refetches the metrics; demo data (reloadKey) includes tags, so it reloads them too.
+  // Tags load with the health and insights views, for their tooltips: the From/To range, or
+  // on Insights its longest window. They have their own sync, so syncing them never refetches
+  // the metrics; demo data (reloadKey) includes tags, so it reloads them too.
+  const [tagStart, tagEnd] = view === 'insights' ? [addDays(end, -(LONGEST_TIMEFRAME - 1)), end] : [start, end]
   useEffect(() => {
-    if (view !== 'health' || start > end) return
+    if (view === 'battery' || tagStart > tagEnd) return
     const ctrl = new AbortController()
     api
-      .tags(start, end, ctrl.signal)
+      .tags(tagStart, tagEnd, ctrl.signal)
       .then(setTags)
       .catch((e: Error) => {
         if (e.name !== 'AbortError') setError(e.message)
       })
     return () => ctrl.abort()
-  }, [view, start, end, reloadKey, tagsReloadKey])
+  }, [view, tagStart, tagEnd, reloadKey, tagsReloadKey])
+
+  // Insights look back from the To date over daily values, whatever the From date and interval.
+  const insightKey = `${end}|${reloadKey}`
+  const insightShown = METRIC_IDS.filter((id) => insightMetrics[id]).join(',')
+  const insightsLoading =
+    insightSeries?.key !== insightKey ||
+    (insightShown.split(',') as MetricId[]).some((id) => insightSeries.data[id] === undefined)
+  useEffect(() => {
+    if (view !== 'insights') return
+    const have = insightSeries?.key === insightKey ? insightSeries.data : {}
+    const missing = insightShown.split(',').filter((id) => !have[id as MetricId]) as MetricId[]
+    if (missing.length === 0) return
+    const ctrl = new AbortController()
+    const from = addDays(end, -(HISTORY_DAYS - 1))
+    Promise.all(missing.map((id) => api.series(id, from, end, 'daily', ctrl.signal)))
+      .then((responses) => {
+        setInsightSeries((prev) => ({
+          key: insightKey,
+          interval: 'daily',
+          data: {
+            ...(prev?.key === insightKey ? prev.data : {}),
+            ...Object.fromEntries(missing.map((id, i) => [id, responses[i]])),
+          },
+        }))
+        setError(null)
+      })
+      .catch((e: Error) => {
+        if (e.name !== 'AbortError') setError(e.message)
+      })
+    return () => ctrl.abort()
+  }, [view, insightKey, insightShown, insightSeries, end])
+
+  const toggleInsightMetric = (id: MetricId) => {
+    const next = { ...insightMetrics, [id]: !insightMetrics[id] }
+    setInsightMetrics(next)
+    store(INSIGHT_METRICS_KEY, next)
+  }
 
   const selectView = (next: View) => {
     setView(next)
@@ -354,13 +411,13 @@ export default function App() {
     runAction(
       'tags',
       async () => {
-        const { tags } = await api.syncTags(start, end)
+        const { tags } = await api.syncTags(tagStart, tagEnd)
         setNotice({
           kind: 'success',
           text:
             tags === 0
-              ? `Oura returned no tags for ${start} to ${end}.`
-              : `Synced ${formatNumber(tags)} ${tags === 1 ? 'tag' : 'tags'} for ${start} to ${end}. Hover the chart to see them.`,
+              ? `Oura returned no tags for ${tagStart} to ${tagEnd}.`
+              : `Synced ${formatNumber(tags)} ${tags === 1 ? 'tag' : 'tags'} for ${tagStart} to ${tagEnd}. Hover the chart to see them.`,
         })
       },
       () => setTagsReloadKey((k) => k + 1),
@@ -463,13 +520,13 @@ export default function App() {
             {v.label}
           </button>
         ))}
-        {view === 'health' && (
+        {view !== 'battery' && (
           // Tags sync on its own too: they need a scope of their own.
           <div className="actions tab-actions">
             <button
               className="btn btn-small btn-primary"
-              disabled={!!busy || rangeInvalid || !oura?.connected}
-              title={oura?.connected ? `Sync the tags you added in the Oura app for ${start} to ${end}` : 'Connect Oura first'}
+              disabled={!!busy || tagStart > tagEnd || !oura?.connected}
+              title={oura?.connected ? `Sync the tags you added in the Oura app for ${tagStart} to ${tagEnd}` : 'Connect Oura first'}
               onClick={syncTags}
             >
               {busy === 'tags' ? 'Syncing…' : 'Sync tags'}
@@ -494,6 +551,20 @@ export default function App() {
         )}
       </nav>
 
+      {view === 'insights' ? (
+        // Insights always look back 30 and 90 days, so only the end date applies.
+        <section className="filters" aria-label="Filters">
+          <label className="field">
+            <span>As of</span>
+            <input type="date" value={end} onChange={(e) => e.target.value && setEnd(e.target.value)} />
+          </label>
+          {range?.lastDay && end !== range.lastDay && (
+            <button className="btn btn-small" onClick={() => setEnd(range.lastDay!)}>
+              Latest day ({range.lastDay})
+            </button>
+          )}
+        </section>
+      ) : (
       <section className="filters" aria-label="Filters">
         <label className="field">
           <span>From</span>
@@ -525,6 +596,7 @@ export default function App() {
           ))}
         </div>
       </section>
+      )}
 
       {error && <div className="error" role="alert">{error}</div>}
       {rangeInvalid && <div className="error" role="alert">“From” must be on or before “To”.</div>}
@@ -547,6 +619,17 @@ export default function App() {
             loading={loading}
             showTable={showTable}
             onToggleTable={() => setShowTable((s) => !s)}
+          />
+        )}
+        {view === 'insights' && (
+          <InsightsView
+            data={insightSeries?.key === insightKey ? insightSeries.data : {}}
+            asOf={end}
+            tags={tags}
+            selected={insightMetrics}
+            onToggle={toggleInsightMetric}
+            colors={byMetric((id) => seriesColor(withDistinctColors(seriesColors, insightMetrics)[id]))}
+            loading={insightsLoading}
           />
         )}
         {view === 'battery' && battery && (
