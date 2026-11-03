@@ -749,3 +749,238 @@ th {
   font-size: 0.8rem;
   color: var(--text-secondary);
 }
+
+/* Insights tab: one section per timeframe, one card per metric. */
+.insight-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.insight-frame[aria-busy='true'] {
+  opacity: 0.7;
+}
+.insight-frame > h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 1.1rem;
+}
+.insight-frame-range {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+.insight-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+}
+.insight-loading {
+  min-height: 160px;
+  place-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.insight-card-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.insight-normal {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.insight-normal span {
+  color: var(--text-muted);
+}
+.insight-chart {
+  margin: 0 -4px;
+}
+.insight-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.insight-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.insight {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 0.85rem;
+}
+.insight strong {
+  display: block;
+  font-weight: 600;
+}
+.insight-detail {
+  color: var(--text-secondary);
+}
+.insight-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--hover-band);
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+.insight-good .insight-icon {
+  color: var(--color-green);
+}
+.insight-bad .insight-icon {
+  color: var(--color-red);
+}
+.insight-method {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+/* The hovered day under an Insights chart, one line so the card doesn't jump. */
+.insight-readout {
+  /* Keeps its line when empty, so hovering doesn't push the findings down. */
+  min-height: 1.45em;
+  margin: 2px 4px 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.insight-readout strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.insight-readout-tags {
+  color: var(--text-secondary);
+}
+
+/* Insights timeframe toggle and the Together section. */
+.insight-frame-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.insight-frame-header h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 1.1rem;
+}
+.pair-x {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+/* A link between two metrics: summary line, the two averages side by side, then its strength. */
+.link-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.link-summary {
+  color: var(--text-primary);
+}
+.link-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 2px 0 0;
+}
+.link-compare > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 40%);
+  gap: 8px;
+  align-items: center;
+}
+.link-compare dt {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-compare dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.link-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--hover-band);
+  overflow: hidden;
+}
+.link-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--text-secondary);
+}
+.link-compare .is-low .link-bar > span {
+  background: var(--axis);
+}
+.link-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.link-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+/* Legend for the Combined insights chart: one entry per line style on it. */
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-line {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+}
+.legend-dashed {
+  background: repeating-linear-gradient(to right, var(--axis) 0 3px, transparent 3px 6px);
+}
+.legend-vertical {
+  width: 2px;
+  height: 12px;
+  background: var(--text-secondary);
+}

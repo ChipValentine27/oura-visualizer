@@ -23,7 +23,7 @@ data you've synced for them.
 
 ## Health Visualizer
 
-The app has two tabs, **Health Visualizer** and **[Battery Life](#battery-life)**,
+The app has three tabs, **Health Visualizer**, **[Insights](#insights)** and **[Battery Life](#battery-life)**,
 which share the date range and interval. The open tab is remembered in this
 browser.
 
@@ -122,6 +122,68 @@ keeps the comparison honest; the tooltip and records show the raw values.
   From/To range into the `Tags` table, replacing tags stored for that range.
   It needs the `tag` scope: after upgrading, Disconnect and Connect Oura again.
   Demo data includes demo tags.
+
+## Insights
+
+The **Insights** tab analyzes up to **3 metrics** (`MAX_INSIGHT_METRICS` in
+`client/src/insights.ts`), picked separately from the chart's and remembered in
+this browser. It looks back from an **As of** day (the shared To date) over
+daily values, ignoring From and the interval, and shows a **Last 30 days** and a
+**Last 90 days** section (`TIMEFRAMES`). Each metric gets a card with a sparkline
+(its normal band, the median dashed, and a fitted trend line when one is found)
+and the findings that stand out, strongest first. Everything is computed in the
+browser from `/api/metrics/{metric}?interval=daily`.
+
+- **Normal**: the window's median, "usually" its 25th–75th percentile.
+- **Above/below your normal**: the last 7 days (30-day view) or 30 days (90-day
+  view) against the rest of the window, if at least half a robust standard
+  deviation (1.4826 × MAD) away and unlikely to be noise.
+- **Trending up/down**: Theil-Sen slope with a Mann-Kendall test (p < 0.01) after
+  removing the weekday pattern; the change over the window must be at least half
+  a robust standard deviation.
+- **Turning up/down**: the 7-day average crossing the 30-day one (30 vs. 90 in the
+  90-day view) within the last 10 (21) days, after 5 days on the other side.
+- **Weekly rhythm**: highest and lowest weekday, if a permutation test (p < 0.05)
+  says the spread isn't chance.
+- **Streaks and records**: days in a row on the better side of the window's
+  median, and a value in the last 3 days that's the window's highest or lowest.
+- Which way is better (`BETTER` in `insights.ts`) colors the arrows green or red;
+  clock times, temperatures and a few others have no better direction, are worded
+  neutrally and get no streaks.
+- A window needs 60% of its days with data before anything is reported.
+- A **30 days / 90 days** toggle (remembered in this browser) switches every
+  card on the tab, including the Combined insights section, between the two windows.
+
+### Combined insights
+
+Below the metric cards, the **Combined insights** section compares the chosen metrics
+with each other (`client/src/combined.ts`), over the selected window:
+
+- **Chart**: each metric's 3-day (30-day view) or 7-day (90-day view)
+  average in units of its own spread from its median, with solid lines at shared
+  turning points. Hovering reads out each metric's value and the day's tags.
+- **Move together** (same day): Spearman correlation of each day's difference
+  from the metric's 15-day (11 in the 30-day view) rolling median, after removing
+  its weekday pattern, so shared trends, level shifts and weekly cycles don't count.
+- **Leads** (a day or two apart): the same, with one metric 1 or 2 record days
+  ahead, in both directions; the strongest is shown as "Steps → HRV that night".
+  Sleep readings and Oura's scores belong to the waking day, so the wording says
+  "that night", "the next morning" or "the next day" as fits.
+- Both are written as a **before/after split**: the other metric's average after
+  the leader's top third vs. its bottom third.
+- Tests use an effective sample size that allows for day-to-day carryover, and a
+  Bonferroni correction across pairs (same day) or pairs × directions × offsets
+  (leads); links weaker than r = 0.2 aren't shown.
+- Pairs linked by construction (a score and one of its contributors, sleep and
+  its stages, steps and walking distance...) are marked **built in** and listed
+  after real links.
+- **Shared turning points**: level shifts found per metric by binary
+  segmentation (permutation test, p < 0.01, at least 0.75 of its usual spread),
+  reported when two or more metrics shift within 3 days (30-day view) or 5 days
+  (90-day view) of each other.
+- **Tags**: hovering a chart reads out that day's value and tags on one line
+  under it, so nothing covers the chart. The tab loads tags for its 90-day window,
+  and **Sync tags** there syncs that window.
 
 ## Battery Life
 

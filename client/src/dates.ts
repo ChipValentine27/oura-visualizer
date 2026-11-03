@@ -73,7 +73,10 @@ export function bucketLabel(start: string, end: string, interval: Interval) {
   }
 }
 
-export const formatNumber = (n: number) => n.toLocaleString()
+/** "Oct 19". */
+export const shortDay = (iso: string) => dayMonth.format(parseDay(iso))
+
+export const formatNumber =(n: number) => n.toLocaleString()
 
 const clock = fmt({ hour: 'numeric', minute: '2-digit' })
 
